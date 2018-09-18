@@ -28,13 +28,19 @@ pthread_mutex_t client_queue_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 pthread_cond_t client_queue_got_request = PTHREAD_COND_INITIALIZER;
 
 /**
-*   Error catching code.
+*   Error logging code.
 **/
 void error(char* message) {
     perror(message);
     exit(1);
 }
 
+/**
+*   Add the client that is attempting to connect to the queue.
+*   This is done by adding the socket the client is communicating from to a LinkedList. 
+*   The Linked List was chosen over a Queue data structure as it allows a dynamic number
+*   of clients to connect. 
+*/
 void client_queue_add(int client_sockfd) {
     struct request* client_request; // Pointer to the new client connect request
     
@@ -66,6 +72,11 @@ void client_queue_add(int client_sockfd) {
     pthread_cond_signal(&client_queue_got_request);
 }
 
+/**
+*   Remove and get the client at the head of the queue. 
+*    
+*   Return: an int representing the socket number in which the client is communicating to
+**/
 int client_queue_pop() {
     struct request* client_request; // Pointer to the new client connect request
    
@@ -101,6 +112,43 @@ int client_queue_pop() {
     return client_sockfd;
 }
 
+int client_send_message(int sockfd, char* msg) {
+    int size = send(sockfd, msg, strlen(msg), 0);
+
+    return size;
+}
+
+int client_login(int sockfd) {
+    client_send_message(sockfd, "===================================================\n");
+    client_send_message(sockfd, "= Welcome to the online Minesweeper gaming system =\n");
+    client_send_message(sockfd, "===================================================\n");
+    client_send_message(sockfd, "\n");
+
+    // Get the username from the user
+    client_send_message(sockfd, "Username: ");
+    char buffer[1024];
+    bzero(buffer, sizeof(buffer));
+    int usr_size = recv(sockfd, &buffer, sizeof(buffer), 0);
+    printf("username: %s \n", buffer);
+
+    // Get the password from the user
+    client_send_message(sockfd, "Password: ");
+    bzero(buffer, sizeof(buffer));
+    int pass_size = recv(sockfd, &buffer, sizeof(buffer), 0);
+    printf("password: %s \n", buffer);
+
+    if(usr_size == -1 || pass_size == -1) {
+        client_send_message(sockfd, "Username or password is incorrect");
+    }
+
+    return 1;
+}
+
+/**
+*   The main function that each thread from the thread pool runs. 
+*   It will attempt to connect to a client and then start playing the game until the client
+*   closes its connection.
+**/
 void* handle_clients_loop() {    
     // Lock the mutex to the client queue
     pthread_mutex_lock(&client_queue_mutex);
@@ -115,8 +163,7 @@ void* handle_clients_loop() {
                 // Unlock the mutex to the queue while this thread is connected to a client
                 pthread_mutex_unlock(&client_queue_mutex);
 
-                // Send message to the client
-                send(client_sockfd, "Playing game: \n", 30, 0);
+                client_login(client_sockfd);
 
                 close(client_sockfd);
 
@@ -132,6 +179,9 @@ void* handle_clients_loop() {
     }
 }
 
+/**
+*   Initializes the server
+**/
 int main(int argc, char *argv[]) {
     int sockfd, newsockfd;              // Listen on sock_fd, new connection on newsockfd 
     int port_num;                       // The port number to listen on
@@ -185,8 +235,7 @@ int main(int argc, char *argv[]) {
         }
         // Add the client to the queue
         client_queue_add(newsockfd);
-        printf("Client connected. Socket: %d\n", newsockfd);
-        printf("Queue size: %d\n\n", client_queue_size);
+        printf("Client connected. Socket: %d. Queue length: %d\n", newsockfd, client_queue_size);
     }
 
     return 0;

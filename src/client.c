@@ -15,6 +15,32 @@ void error(char* message) {
     exit(1);
 }
 
+void receive_message(int sockfd) {
+    // Receive message from server
+    int msg_size = 0;
+    char buffer[1024];
+    while(1) {
+        bzero(buffer, sizeof(buffer));
+        msg_size = recv(sockfd, &buffer, sizeof(buffer), 0);
+        if(msg_size == -1) {
+            error("Error with message received");
+        }
+        printf("%s\n", buffer);
+        if(msg_size < sizeof(buffer)) {
+            break;
+        }
+    }
+}
+
+void send_input(int sockfd) {
+    char buffer[1024];
+    fgets(buffer, sizeof(buffer), stdin);
+    int msg_size = send(sockfd, &buffer, strlen(buffer), 0);
+    if(msg_size < 0) {
+        error("Error with writing to socket");
+    }
+}
+
 int main(int argc, char *argv[]) {
     int sockfd;                         // The socket field descriptor
     int port_num;                       // The port number to send to
@@ -49,14 +75,12 @@ int main(int argc, char *argv[]) {
 		error("Error while attempting to connect to server");
 	}
 
-    // Receive message from server
-    char buffer[256];
-    bzero(buffer, 256);
-    int msg_size = recv(sockfd, &buffer, sizeof(buffer), 0);
-    if(msg_size < 0) {
-        error("Receiving message");
-    }
-    printf("Message received: %s\n", buffer);
+    // Log in
+    receive_message(sockfd);
+    send_input(sockfd);
+    receive_message(sockfd);
+    send_input(sockfd);
+    receive_message(sockfd);
 
     return 0;
 }
