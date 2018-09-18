@@ -49,15 +49,14 @@ int main(int argc, char *argv[]) {
 		error("Error while attempting to connect to server");
 	}
 
-    // Get and send message to server
-    printf("Connected to server!\n\n Send message: ");
+    // Receive message from server
     char buffer[256];
-    fgets(buffer, 255, stdin);
-    int msg_size = send(sockfd, &buffer, sizeof(buffer), 0);
+    bzero(buffer, 256);
+    int msg_size = recv(sockfd, &buffer, sizeof(buffer), 0);
     if(msg_size < 0) {
-        error("Error with writing to socket");
+        error("Receiving message");
     }
-    printf("Message sent\n");
+    printf("Message received: %s\n", buffer);
 
     return 0;
 }
