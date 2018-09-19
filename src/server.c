@@ -29,6 +29,9 @@ struct request* tail_client_queue = NULL;   // TAIL of the linked list of the qu
 pthread_mutex_t client_queue_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 pthread_cond_t client_queue_got_request = PTHREAD_COND_INITIALIZER;
 
+// File read mutex
+pthread_mutex_t file_read_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /**
 *   Error logging code.
 **/
@@ -114,6 +117,16 @@ int client_queue_pop() {
     return client_sockfd;
 }
 
+/**
+ * Sends a message to a client. 
+ * 
+ * The message codes are defined in the messages header file. Each one will be parsed by the client 
+ * which will result in differing behaviours.
+ * 
+ * It has to wait on a response from the client so that multiple 
+ * calls to this function don't result in a joined buffer. Since the client throws away anything
+ * after a new line, if the buffer is joined, data can be lost.
+ **/
 int client_send_message(int sockfd, char msg_code, char* msg) {
     // Concatenate the msg code and the message then transmit to the client
     char buffer[512];
@@ -126,10 +139,13 @@ int client_send_message(int sockfd, char msg_code, char* msg) {
     return size;
 }
 
+/**
+ * Checks the Authentication text file to see if there is any username-password pair that
+ * matches the one passed to this function
+ * 
+ * Returns a 1 if there is a match
+ **/
 int client_login_verification(char* username, char* password) {
-    // Open the authentication file to check for usernames and passwords
-    FILE *fp=fopen("Authentication.txt", "r");
-
     // Remove the newline character from the username and password if necessary
     if((strlen(username)-1 > 0) && (username[strlen(username)-1] == '\n')) {
         username[strlen(username)-1] = '\0';
@@ -142,29 +158,37 @@ int client_login_verification(char* username, char* password) {
     char user[1024];
     char pass[1024];
 
+    // Lock mutex in order to access the authentication file
+    //pthread_mutex_lock(&file_read_mutex);
+
+    // Open the authentication file to check for usernames and passwords
+    FILE *fp=fopen("Authentication.txt", "r");
+
     // Get rid of the header in the text file
     fscanf(fp, "%s%s", user, pass); 
     // Iterate through the authentication file
     while(fscanf(fp, "%s%s", user, pass) != EOF) {
-        printf("Usernames: %s , %s\n", username, user);
-        printf("Passwords: %s , %s\n", password, pass);
-
-        
         // Check if the username and password given match any on the file
         if(strcmp(username, user) == 0) {
-            printf("Username matches \n");
             if(strcmp(password, pass) == 0) {
-                printf("Password matches \n");
                 // Username and password matched
                 return 1;
             }
         }
     }
 
+    // Unlock the mutex to the file so other threads can access it 
+    //pthread_mutex_unlock(&file_read_mutex);
+
     // Username and password did not match
     return 0;
 }
 
+/**
+ * Displays the welcome screen and prompts the user to type their username or password
+ * 
+ * Returns a 1 if login was successful
+ **/
 int client_login(int sockfd) {
     // Display the welcome banner
     client_send_message(sockfd, MSGC_PRINT, "===================================================\n");

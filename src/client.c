@@ -10,13 +10,17 @@
 #include "message.h"
 
 /**
-*   Error catching code.
+* Error catching code.
 **/
 void error(char* message) {
     perror(message);
     exit(1);
 }
 
+/**
+ * Prints a message to the console. Will stop when the cursor meets a 
+ * new line character ('\n')
+ **/
 void print_message(char* message) {
     for(int i=0; i < strlen(message); i++) {
         char c = message[i];
@@ -28,6 +32,9 @@ void print_message(char* message) {
     }
 }
 
+/**
+ * Wait for input from the user and then sends it to the server
+ **/
 void send_input(int sockfd) {
     char buffer[1024];
     fgets(buffer, sizeof(buffer), stdin);
@@ -37,6 +44,11 @@ void send_input(int sockfd) {
     }
 }
 
+/**
+ * Sends a message to the server.
+ * The message codes are defined in the message header. These codes are parsed by the server which 
+ * determines its behaviour when receiving this message
+ **/
 int send_message(int sockfd, char msg_code, char* msg) {
     char buffer[512];
     snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
@@ -45,6 +57,10 @@ int send_message(int sockfd, char msg_code, char* msg) {
     return size;
 }
 
+/**
+ * Attempts to connect to the server and then will open the main loop where it will attempt to play
+ * minesweeper through the connection to the server
+ **/
 int main(int argc, char *argv[]) {
     int sockfd;                         // The socket field descriptor
     int port_num;                       // The port number to send to
@@ -93,17 +109,21 @@ int main(int argc, char *argv[]) {
         char code = buffer[0];
         switch(code) {
             case MSGC_PRINT:
+                // Print the message to the console
                 print_message(server_msg);
                 send_message(sockfd, MSGC_ACK, "");
                 break;
             case MSGC_INPUT:
+                // Print the message to the console and then waits for input to send to the server
                 print_message(server_msg);
                 send_message(sockfd, MSGC_ACK, "");
                 send_input(sockfd);
                 break;
             case MSGC_EXIT:
+                // Print the message to the console and then exit out of the program
                 print_message(server_msg);
                 send_message(sockfd, MSGC_ACK, "");
+                close(sockfd);
                 exit(0);
                 break;
             default:
