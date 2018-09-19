@@ -10,6 +10,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#include "message.h"
+
 #define PORT_DEFAULT            12345
 #define THREADPOOL_SIZE         3
 #define CONNECTION_BACKLOG_MAX  5
@@ -112,33 +114,40 @@ int client_queue_pop() {
     return client_sockfd;
 }
 
-int client_send_message(int sockfd, char* msg) {
-    int size = send(sockfd, msg, strlen(msg), 0);
+int client_send_message(int sockfd, char msg_code, char* msg) {
+    char buffer[512];
+    snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
+    int size = send(sockfd, buffer, strlen(buffer), 0);
+
+    // Wait for ACK from client
+    recv(sockfd, &buffer, sizeof(buffer), 0);
 
     return size;
 }
 
+int client_login_verification(char* username, char* password) {
+    return 0;
+}
+
 int client_login(int sockfd) {
-    client_send_message(sockfd, "===================================================\n");
-    client_send_message(sockfd, "= Welcome to the online Minesweeper gaming system =\n");
-    client_send_message(sockfd, "===================================================\n");
-    client_send_message(sockfd, "\n");
+    client_send_message(sockfd, MSGC_PRINT, "===================================================\n");
+    client_send_message(sockfd, MSGC_PRINT, "= Welcome to the online Minesweeper gaming system =\n");
+    client_send_message(sockfd, MSGC_PRINT, "===================================================\n");
+    client_send_message(sockfd, MSGC_PRINT, "\n");
 
     // Get the username from the user
-    client_send_message(sockfd, "Username: ");
+    client_send_message(sockfd, MSGC_PRINT_INPUT, "Username: ");
     char buffer[1024];
     bzero(buffer, sizeof(buffer));
     int usr_size = recv(sockfd, &buffer, sizeof(buffer), 0);
-    printf("username: %s \n", buffer);
 
     // Get the password from the user
-    client_send_message(sockfd, "Password: ");
+    client_send_message(sockfd, MSGC_PRINT_INPUT, "Password: ");
     bzero(buffer, sizeof(buffer));
     int pass_size = recv(sockfd, &buffer, sizeof(buffer), 0);
-    printf("password: %s \n", buffer);
 
     if(usr_size == -1 || pass_size == -1) {
-        client_send_message(sockfd, "Username or password is incorrect");
+        client_send_message(sockfd, MSGC_PRINT, "Username or password is incorrect");
     }
 
     return 1;

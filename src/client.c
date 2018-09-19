@@ -7,6 +7,8 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
+#include "message.h"
+
 /**
 *   Error catching code.
 **/
@@ -15,19 +17,13 @@ void error(char* message) {
     exit(1);
 }
 
-void receive_message(int sockfd) {
-    // Receive message from server
-    int msg_size = 0;
-    char buffer[1024];
-    while(1) {
-        bzero(buffer, sizeof(buffer));
-        msg_size = recv(sockfd, &buffer, sizeof(buffer), 0);
-        if(msg_size == -1) {
-            error("Error with message received");
-        }
-        printf("%s\n", buffer);
-        if(msg_size < sizeof(buffer)) {
-            break;
+void print_message(char* message) {
+    for(int i=0; i < strlen(message); i++) {
+        char c = message[i];
+        putchar(c);
+        fflush(stdout);
+        if(c == '\n') {
+            return;
         }
     }
 }
@@ -39,6 +35,14 @@ void send_input(int sockfd) {
     if(msg_size < 0) {
         error("Error with writing to socket");
     }
+}
+
+int send_message(int sockfd, char msg_code, char* msg) {
+    char buffer[512];
+    snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
+    int size = send(sockfd, buffer, strlen(buffer), 0);
+
+    return size;
 }
 
 int main(int argc, char *argv[]) {
@@ -75,12 +79,32 @@ int main(int argc, char *argv[]) {
 		error("Error while attempting to connect to server");
 	}
 
-    // Log in
-    receive_message(sockfd);
-    send_input(sockfd);
-    receive_message(sockfd);
-    send_input(sockfd);
-    receive_message(sockfd);
+    // Start main loop
+    char buffer[MESSAGE_MAX_SIZE];
+    char *server_msg = buffer + 1;
+    while(1) {
+        // Receive message from server
+        bzero(buffer, sizeof(buffer));
+        int msg_size = recv(sockfd, &buffer, sizeof(buffer), 0);
+        if(msg_size == -1) {
+            error("Error with message received");
+        }
+        
+        char code = buffer[0];
+        switch(code) {
+            case MSGC_PRINT:
+                print_message(server_msg);
+                send_message(sockfd, MSGC_ACK, "");
+                break;
+            case MSGC_PRINT_INPUT:
+                print_message(server_msg);
+                send_message(sockfd, MSGC_ACK, "");
+                send_input(sockfd);
+                break;
+            default:
+                break;
+        }
+    }
 
     return 0;
 }
