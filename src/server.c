@@ -13,8 +13,8 @@
 #include "message.h"
 
 #define PORT_DEFAULT            12345
-#define THREADPOOL_SIZE         3
-#define CONNECTION_BACKLOG_MAX  5
+#define THREADPOOL_SIZE         3       // How many working threads will be handling clients at one time
+#define CONNECTION_BACKLOG_MAX  20      // The maximum number of connections the server will support
 
 // Threadpool variables
 int client_queue_size = 0;  // How many clients waiting to connect
@@ -115,6 +115,7 @@ int client_queue_pop() {
 }
 
 int client_send_message(int sockfd, char msg_code, char* msg) {
+    // Concatenate the msg code and the message then transmit to the client
     char buffer[512];
     snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
     int size = send(sockfd, buffer, strlen(buffer), 0);
@@ -126,31 +127,69 @@ int client_send_message(int sockfd, char msg_code, char* msg) {
 }
 
 int client_login_verification(char* username, char* password) {
+    // Open the authentication file to check for usernames and passwords
+    FILE *fp=fopen("Authentication.txt", "r");
+
+    // Remove the newline character from the username and password if necessary
+    if((strlen(username)-1 > 0) && (username[strlen(username)-1] == '\n')) {
+        username[strlen(username)-1] = '\0';
+    }
+    if((strlen(password)-1 > 0) && (password[strlen(password)-1] == '\n')) {
+        password[strlen(password)-1] = '\0';
+    }
+    
+    // Temporary variables that will hold the username and password of each line in the file
+    char user[1024];
+    char pass[1024];
+
+    // Get rid of the header in the text file
+    fscanf(fp, "%s%s", user, pass); 
+    // Iterate through the authentication file
+    while(fscanf(fp, "%s%s", user, pass) != EOF) {
+        printf("Usernames: %s , %s\n", username, user);
+        printf("Passwords: %s , %s\n", password, pass);
+
+        
+        // Check if the username and password given match any on the file
+        if(strcmp(username, user) == 0) {
+            printf("Username matches \n");
+            if(strcmp(password, pass) == 0) {
+                printf("Password matches \n");
+                // Username and password matched
+                return 1;
+            }
+        }
+    }
+
+    // Username and password did not match
     return 0;
 }
 
 int client_login(int sockfd) {
+    // Display the welcome banner
     client_send_message(sockfd, MSGC_PRINT, "===================================================\n");
     client_send_message(sockfd, MSGC_PRINT, "= Welcome to the online Minesweeper gaming system =\n");
     client_send_message(sockfd, MSGC_PRINT, "===================================================\n");
     client_send_message(sockfd, MSGC_PRINT, "\n");
 
     // Get the username from the user
-    client_send_message(sockfd, MSGC_PRINT_INPUT, "Username: ");
-    char buffer[1024];
-    bzero(buffer, sizeof(buffer));
-    int usr_size = recv(sockfd, &buffer, sizeof(buffer), 0);
+    char username[1024];
+    bzero(username, sizeof(username));
+    client_send_message(sockfd, MSGC_INPUT, "Username: ");
+    int usr_size = recv(sockfd, &username, sizeof(username), 0);
 
     // Get the password from the user
-    client_send_message(sockfd, MSGC_PRINT_INPUT, "Password: ");
-    bzero(buffer, sizeof(buffer));
-    int pass_size = recv(sockfd, &buffer, sizeof(buffer), 0);
+    char password[1024];
+    bzero(password, sizeof(password));
+    client_send_message(sockfd, MSGC_INPUT, "Password: ");
+    int pass_size = recv(sockfd, &password, sizeof(password), 0);
 
     if(usr_size == -1 || pass_size == -1) {
-        client_send_message(sockfd, MSGC_PRINT, "Username or password is incorrect");
+        return 0;
     }
 
-    return 1;
+    // Verify if the username and password matches any on the file. Return 1 if it does.
+    return client_login_verification(username, password);
 }
 
 /**
@@ -172,8 +211,18 @@ void* handle_clients_loop() {
                 // Unlock the mutex to the queue while this thread is connected to a client
                 pthread_mutex_unlock(&client_queue_mutex);
 
-                client_login(client_sockfd);
+                // Display the welcome banner and check if the client's username and password are authorized to proceed
+                if(client_login(client_sockfd)) {
+                    // The client has authorization to play the game
+                    client_send_message(client_sockfd, MSGC_PRINT, "\n");
+                    client_send_message(client_sockfd, MSGC_PRINT, "Login successful\n");
+                }else {
+                    // The username and password were wrong
+                    client_send_message(client_sockfd, MSGC_PRINT, "\n");
+                    client_send_message(client_sockfd, MSGC_EXIT, "Username or password is incorrect. Disconnecting...\n");
+                }
 
+                // Close the socket linking to the client, freeing this thread to connect to another client
                 close(client_sockfd);
 
                 // Lock the mutex now that the client has disconnected and this thread is waiting

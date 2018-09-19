@@ -96,10 +96,15 @@ int main(int argc, char *argv[]) {
                 print_message(server_msg);
                 send_message(sockfd, MSGC_ACK, "");
                 break;
-            case MSGC_PRINT_INPUT:
+            case MSGC_INPUT:
                 print_message(server_msg);
                 send_message(sockfd, MSGC_ACK, "");
                 send_input(sockfd);
+                break;
+            case MSGC_EXIT:
+                print_message(server_msg);
+                send_message(sockfd, MSGC_ACK, "");
+                exit(0);
                 break;
             default:
                 break;
