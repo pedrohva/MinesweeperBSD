@@ -4,17 +4,18 @@
 /**
  * Contains variables that help define message functionality
  **/
+#define MESSAGE_MAX_SIZE    1024
 
-#define MESSAGE_MAX_SIZE    2048
-
-#define MSGC_ACK            '1'
-#define MSGC_PRINT          '2'
-#define MSGC_INPUT          '3'
-#define MSGC_EXIT           '4'
-#define MSGC_DATA           '5'
+// All messages are sent with a code. This code tells the receiver on how to process the message string.
+#define MSGC_ACK            '1' // Used to state that a message was received (relevant for clients as it allows multiple lines to be received in separate messages)
+#define MSGC_PRINT          '2' // The message sohuld be printed to the terminal
+#define MSGC_INPUT          '3' // The message should be printed to the terminal and the user should be polled for input
+#define MSGC_EXIT           '4' // The message should be printed to the terminal and the receiving process should exit
+#define MSGC_DATA           '5' // The message sent contains data that should be placed in a variable (eg. the input from an user)
+// NOTE: Every message sent requires the receiver to send a MSGC_ACK in response. Exceptions include messages sent with codes MSGC_ACK and MSGC_DATA
 
 /**
- * Sends a message to a client/server
+ * Send a message to a client/server
  * 
  * The message codes are defined in the messages header file. Each one will be parsed by the client 
  * which will result in differing behaviours.

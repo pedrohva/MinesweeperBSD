@@ -148,8 +148,8 @@ int client_login_verification(char* username, char* password) {
     }
     
     // Temporary variables that will hold the username and password of each line in the file
-    char user[1024];
-    char pass[1024];
+    char user[MESSAGE_MAX_SIZE];
+    char pass[MESSAGE_MAX_SIZE];
 
     // Lock mutex in order to access the authentication file
     //pthread_mutex_lock(&file_read_mutex);
@@ -190,12 +190,12 @@ int client_login(int sockfd) {
     send_message(sockfd, MSGC_PRINT, "\n");
 
     // Get the username from the user
-    char username[1024];
+    char username[MESSAGE_MAX_SIZE];
     send_message(sockfd, MSGC_INPUT, "Username: ");
     int usr_size = receive_message(sockfd, username, sizeof(username));
 
     // Get the password from the user
-    char password[1024];
+    char password[MESSAGE_MAX_SIZE];
     send_message(sockfd, MSGC_INPUT, "Password: ");
     int pass_size = receive_message(sockfd, password, sizeof(password));
 
@@ -207,6 +207,9 @@ int client_login(int sockfd) {
     return client_login_verification(username+1, password+1);
 }
 
+/**
+ * Draws a screen that shows the user the viable options to select from the Main Menu 
+ **/
 void draw_main_menu(int sockfd) {
     send_message(sockfd, MSGC_PRINT, "Welcome to the Minesweeper gaming system.\n");
     send_message(sockfd, MSGC_PRINT, "\n");
@@ -217,6 +220,9 @@ void draw_main_menu(int sockfd) {
     send_message(sockfd, MSGC_INPUT, "Selection Option (1-3): ");
 }
 
+/**
+ * Will call a draw function that depends on the current state of the game
+ **/
 void draw(enum game_state *state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "\n");
     int size = send_message(sockfd, MSGC_PRINT, "===================================================\n");
@@ -235,6 +241,10 @@ void draw(enum game_state *state, int sockfd) {
     }
 }
 
+/**
+ * Waits for the user to send some input. 
+ * If the user sends a number between 1 and 3, the game's state will be updated accordingly
+ **/
 void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
     char input = buffer[1];
 
@@ -255,8 +265,11 @@ void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
     }
 }
 
+/**
+ * Waits for user input then calls the update function related to the current state the game is in.
+ **/
 void update(enum game_state *state, int sockfd) {
-    char buffer[1024];
+    char buffer[MESSAGE_MAX_SIZE];
     receive_message(sockfd, buffer, sizeof(buffer));
 
     switch(*state) {
@@ -286,6 +299,7 @@ void game_loop(int sockfd) {
         update(&state, sockfd);
     }
 
+    // Send a message with a code that tells the client to exit and close the socket from their side
     send_message(sockfd, MSGC_EXIT, "Thanks for playing! Disconnecting...\n");
 }
 

@@ -22,7 +22,7 @@ void error(char* message) {
  * Prints a message to the console. Will stop when the cursor meets a 
  * new line character ('\n')
  **/
-void print_message(char* message) {
+void print_message(int sockfd, char* message) {
     for(int i=0; i < strlen(message); i++) {
         char c = message[i];
         putchar(c);
@@ -31,6 +31,9 @@ void print_message(char* message) {
             return;
         }
     }
+
+    // Sends an ACK to the server so that the next line - if any - can be sent
+    send_message(sockfd, MSGC_ACK, "");
 }
 
 /**
@@ -85,19 +88,16 @@ int main(int argc, char *argv[]) {
         switch(code) {
             case MSGC_PRINT:
                 // Print the message to the console
-                print_message(server_msg);
-                send_message(sockfd, MSGC_ACK, "");
+                print_message(sockfd, server_msg);
                 break;
             case MSGC_INPUT:
                 // Print the message to the console and then waits for input to send to the server
-                print_message(server_msg);
-                send_message(sockfd, MSGC_ACK, "");
+                print_message(sockfd, server_msg);
                 send_input(sockfd);
                 break;
             case MSGC_EXIT:
                 // Print the message to the console and then exit out of the program
-                print_message(server_msg);
-                send_message(sockfd, MSGC_ACK, "");
+                print_message(sockfd, server_msg);
                 close(sockfd);
                 exit(0);
                 break;

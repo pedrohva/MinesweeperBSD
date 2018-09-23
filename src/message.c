@@ -23,7 +23,7 @@
  **/
 int send_message(int sockfd, char msg_code, char* msg) {
     // Concatenate the msg code and the message then transmit to the client
-    char buffer[512];
+    char buffer[MESSAGE_MAX_SIZE];
     snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
     int size = send(sockfd, buffer, strlen(buffer), 0);
 
@@ -54,7 +54,7 @@ int receive_message(int sockfd, char* buffer, int buffer_size) {
  * Wait for input from the user and then sends it to the server
  **/
 void send_input(int sockfd) {
-    char buffer[1024];
+    char buffer[MESSAGE_MAX_SIZE];
     fgets(buffer, sizeof(buffer), stdin);
     int msg_size = send_message(sockfd, MSGC_DATA, buffer);
     if(msg_size < 0) {
