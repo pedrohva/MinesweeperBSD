@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 // Threads
 #include <pthread.h>     
 // Sockets
@@ -12,9 +13,10 @@
 
 #include "message.h"
 
-#define PORT_DEFAULT            12345
+#define PORT_DEFAULT            12345   // The port to listen to when no other option is given
 #define THREADPOOL_SIZE         3       // How many working threads will be handling clients at one time
 #define CONNECTION_BACKLOG_MAX  20      // The maximum number of connections the server will support
+#define RNG_SEED_DEFAULT        42      // The seed used for the random number generator
 
 // Threadpool variables
 int client_queue_size = 0;  // How many clients waiting to connect
@@ -31,6 +33,14 @@ pthread_cond_t client_queue_got_request = PTHREAD_COND_INITIALIZER;
 
 // File read mutex
 pthread_mutex_t file_read_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Contains the states that the game can be in when being played
+enum game_state {
+    MAIN_MENU,
+    PLAYING,
+    HIGHSCORE,
+    EXIT
+};
 
 /**
 *   Error logging code.
@@ -127,7 +137,7 @@ int client_queue_pop() {
  * calls to this function don't result in a joined buffer. Since the client throws away anything
  * after a new line, if the buffer is joined, data can be lost.
  **/
-int client_send_message(int sockfd, char msg_code, char* msg) {
+int send_message(int sockfd, char msg_code, char* msg) {
     // Concatenate the msg code and the message then transmit to the client
     char buffer[512];
     snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
@@ -191,21 +201,21 @@ int client_login_verification(char* username, char* password) {
  **/
 int client_login(int sockfd) {
     // Display the welcome banner
-    client_send_message(sockfd, MSGC_PRINT, "===================================================\n");
-    client_send_message(sockfd, MSGC_PRINT, "= Welcome to the online Minesweeper gaming system =\n");
-    client_send_message(sockfd, MSGC_PRINT, "===================================================\n");
-    client_send_message(sockfd, MSGC_PRINT, "\n");
+    send_message(sockfd, MSGC_PRINT, "===================================================\n");
+    send_message(sockfd, MSGC_PRINT, "= Welcome to the online Minesweeper gaming system =\n");
+    send_message(sockfd, MSGC_PRINT, "===================================================\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
 
     // Get the username from the user
     char username[1024];
     bzero(username, sizeof(username));
-    client_send_message(sockfd, MSGC_INPUT, "Username: ");
+    send_message(sockfd, MSGC_INPUT, "Username: ");
     int usr_size = recv(sockfd, &username, sizeof(username), 0);
 
     // Get the password from the user
     char password[1024];
     bzero(password, sizeof(password));
-    client_send_message(sockfd, MSGC_INPUT, "Password: ");
+    send_message(sockfd, MSGC_INPUT, "Password: ");
     int pass_size = recv(sockfd, &password, sizeof(password), 0);
 
     if(usr_size == -1 || pass_size == -1) {
@@ -214,6 +224,51 @@ int client_login(int sockfd) {
 
     // Verify if the username and password matches any on the file. Return 1 if it does.
     return client_login_verification(username, password);
+}
+
+void draw_main_menu(int sockfd) {
+    send_message(sockfd, MSGC_PRINT, "Welcome to the Minesweeper gaming system.\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+    send_message(sockfd, MSGC_PRINT, "Please enter a selection:\n");
+    send_message(sockfd, MSGC_PRINT, "<1> Play Minesweeper\n");
+    send_message(sockfd, MSGC_PRINT, "<2> Show Leaderboard\n");
+    send_message(sockfd, MSGC_PRINT, "<3> Quit\n");
+    send_message(sockfd, MSGC_INPUT, "Selection Option (1-3): ");
+}
+
+void draw(enum game_state state, int sockfd) {
+    switch(state) {
+        case MAIN_MENU:
+            draw_main_menu(sockfd);
+            break;
+        default:
+            break;
+    }
+}
+
+void update(enum game_state state, int sockfd) {
+    char buffer[1024];
+    bzero(buffer, sizeof(buffer));
+    recv(sockfd, &buffer, sizeof(buffer), 0);
+}
+
+/**
+ * The game is played through this loop. It uses a state machine in order to decide what screen to
+ * show and which function to call.
+ * As this function is called by multiple threads, data relating to the game must be local.
+ **/
+void game_loop(int sockfd) {
+    // Initialize the minesweeper game
+    enum game_state state = MAIN_MENU;
+
+    // Start the game loop that plays Minesweeper
+    while(state != EXIT) {
+        // Draw the screen representing the game state to the terminal
+        draw(state, sockfd);
+
+        // Update the game logic (including waiting for input)
+        update(state, sockfd);
+    }
 }
 
 /**
@@ -238,12 +293,14 @@ void* handle_clients_loop() {
                 // Display the welcome banner and check if the client's username and password are authorized to proceed
                 if(client_login(client_sockfd)) {
                     // The client has authorization to play the game
-                    client_send_message(client_sockfd, MSGC_PRINT, "\n");
-                    client_send_message(client_sockfd, MSGC_PRINT, "Login successful\n");
+                    send_message(client_sockfd, MSGC_PRINT, "\n");
+                    send_message(client_sockfd, MSGC_PRINT, "Login successful\n");
+                    send_message(client_sockfd, MSGC_PRINT, "\n");
+                    game_loop(client_sockfd);
                 }else {
                     // The username and password were wrong
-                    client_send_message(client_sockfd, MSGC_PRINT, "\n");
-                    client_send_message(client_sockfd, MSGC_EXIT, "Username or password is incorrect. Disconnecting...\n");
+                    send_message(client_sockfd, MSGC_PRINT, "\n");
+                    send_message(client_sockfd, MSGC_EXIT, "Username or password is incorrect. Disconnecting...\n");
                 }
 
                 // Close the socket linking to the client, freeing this thread to connect to another client
@@ -269,6 +326,9 @@ int main(int argc, char *argv[]) {
     int port_num;                       // The port number to listen on
     struct sockaddr_in server_addr;     // My address information 
 	struct sockaddr_in client_addr;     // Client's address information
+
+    // Ignore the SIGPIPE signal that is sent if the client is closed while we're reading or sending data
+    signal(SIGPIPE, SIG_IGN);
 
     // Create the threadpool that will handle the clients
     pthread_t  threadpool[THREADPOOL_SIZE];
