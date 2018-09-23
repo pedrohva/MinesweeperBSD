@@ -34,18 +34,6 @@ void print_message(char* message) {
 }
 
 /**
- * Wait for input from the user and then sends it to the server
- **/
-void send_input(int sockfd) {
-    char buffer[1024];
-    fgets(buffer, sizeof(buffer), stdin);
-    int msg_size = send(sockfd, &buffer, strlen(buffer), 0);
-    if(msg_size < 0) {
-        error("Error with writing to socket");
-    }
-}
-
-/**
  * Sends a message to the server.
  * The message codes are defined in the message header. These codes are parsed by the server which 
  * determines its behaviour when receiving this message
@@ -56,6 +44,18 @@ int send_message(int sockfd, char msg_code, char* msg) {
     int size = send(sockfd, buffer, strlen(buffer), 0);
 
     return size;
+}
+
+/**
+ * Wait for input from the user and then sends it to the server
+ **/
+void send_input(int sockfd) {
+    char buffer[1024];
+    fgets(buffer, sizeof(buffer), stdin);
+    int msg_size = send_message(sockfd, MSGC_DATA, buffer);
+    if(msg_size < 0) {
+        error("Error with writing to socket");
+    }
 }
 
 /**

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <ctype.h>
 // Threads
 #include <pthread.h>     
 // Sockets
@@ -223,7 +224,7 @@ int client_login(int sockfd) {
     }
 
     // Verify if the username and password matches any on the file. Return 1 if it does.
-    return client_login_verification(username, password);
+    return client_login_verification(username+1, password+1);
 }
 
 void draw_main_menu(int sockfd) {
@@ -236,8 +237,16 @@ void draw_main_menu(int sockfd) {
     send_message(sockfd, MSGC_INPUT, "Selection Option (1-3): ");
 }
 
-void draw(enum game_state state, int sockfd) {
-    switch(state) {
+void draw(enum game_state *state, int sockfd) {
+    send_message(sockfd, MSGC_PRINT, "\n");
+    int size = send_message(sockfd, MSGC_PRINT, "===================================================\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+    // Check if the client is still connected
+    if(size < 0) {
+        *state = EXIT;
+    }
+
+    switch(*state) {
         case MAIN_MENU:
             draw_main_menu(sockfd);
             break;
@@ -246,12 +255,40 @@ void draw(enum game_state state, int sockfd) {
     }
 }
 
-void update(enum game_state state, int sockfd) {
+void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
+    char input = buffer[1];
+
+    // Check if the selection is a number
+    if(isdigit(input)) {
+        // Convert to the proper integer, ex. '2' -> 2
+        int selection = input - '0';
+        printf("SELECTION: %d\n", selection);
+
+        switch(selection) {
+            case 3:
+                *state = EXIT;
+                break;
+            default:
+                send_message(sockfd, MSGC_PRINT, "Not a valid input! Choose a number between 1 and 3\n");
+                break;
+        }
+    }else {
+        send_message(sockfd, MSGC_PRINT, "Not a valid input! Choose a number between 1 and 3\n");
+    }
+}
+
+void update(enum game_state *state, int sockfd) {
     char buffer[1024];
     bzero(buffer, sizeof(buffer));
     recv(sockfd, &buffer, sizeof(buffer), 0);
 
-    
+    switch(*state) {
+        case MAIN_MENU:
+            update_main_menu(sockfd, state, buffer);
+            break;
+        default:
+            break;
+    }
 }
 
 /**
@@ -266,11 +303,13 @@ void game_loop(int sockfd) {
     // Start the game loop that plays Minesweeper
     while(state != EXIT) {
         // Draw the screen representing the game state to the terminal
-        draw(state, sockfd);
+        draw(&state, sockfd);
 
         // Update the game logic (including waiting for input)
-        update(state, sockfd);
+        update(&state, sockfd);
     }
+
+    send_message(sockfd, MSGC_EXIT, "Thanks for playing! Disconnecting...\n");
 }
 
 /**

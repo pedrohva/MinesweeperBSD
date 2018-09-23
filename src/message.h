@@ -11,5 +11,6 @@
 #define MSGC_PRINT          '2'
 #define MSGC_INPUT          '3'
 #define MSGC_EXIT           '4'
+#define MSGC_DATA           '5'
 
 #endif // MESSAGE_H
