@@ -250,6 +250,8 @@ void update(enum game_state state, int sockfd) {
     char buffer[1024];
     bzero(buffer, sizeof(buffer));
     recv(sockfd, &buffer, sizeof(buffer), 0);
+
+    
 }
 
 /**
