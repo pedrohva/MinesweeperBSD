@@ -34,31 +34,6 @@ void print_message(char* message) {
 }
 
 /**
- * Sends a message to the server.
- * The message codes are defined in the message header. These codes are parsed by the server which 
- * determines its behaviour when receiving this message
- **/
-int send_message(int sockfd, char msg_code, char* msg) {
-    char buffer[512];
-    snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
-    int size = send(sockfd, buffer, strlen(buffer), 0);
-
-    return size;
-}
-
-/**
- * Wait for input from the user and then sends it to the server
- **/
-void send_input(int sockfd) {
-    char buffer[1024];
-    fgets(buffer, sizeof(buffer), stdin);
-    int msg_size = send_message(sockfd, MSGC_DATA, buffer);
-    if(msg_size < 0) {
-        error("Error with writing to socket");
-    }
-}
-
-/**
  * Attempts to connect to the server and then will open the main loop where it will attempt to play
  * minesweeper through the connection to the server
  **/
@@ -101,8 +76,7 @@ int main(int argc, char *argv[]) {
     char *server_msg = buffer + 1;
     while(1) {
         // Receive message from server
-        bzero(buffer, sizeof(buffer));
-        int msg_size = recv(sockfd, &buffer, sizeof(buffer), 0);
+        int msg_size = receive_message(sockfd, buffer, sizeof(buffer));
         if(msg_size == -1) {
             error("Error with message received");
         }

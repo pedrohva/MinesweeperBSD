@@ -56,8 +56,10 @@ void error(char* message) {
 *   This is done by adding the socket the client is communicating from to a LinkedList. 
 *   The Linked List was chosen over a Queue data structure as it allows a dynamic number
 *   of clients to connect. 
+*   
+*   Returns the length of the queue
 */
-void client_queue_add(int client_sockfd) {
+int client_queue_add(int client_sockfd) {
     struct request* client_request; // Pointer to the new client connect request
     
     // Create the client request structure
@@ -79,13 +81,15 @@ void client_queue_add(int client_sockfd) {
         tail_client_queue->next = client_request;
         tail_client_queue = client_request;
     }
-    client_queue_size++;
+    int size = ++client_queue_size;
 
     // Unlock the mutex for the queue
     pthread_mutex_unlock(&client_queue_mutex);
 
     // Signal the condition variable that the queue has a new request
     pthread_cond_signal(&client_queue_got_request);
+
+    return size;
 }
 
 /**
@@ -126,28 +130,6 @@ int client_queue_pop() {
         return -1;
     }
     return client_sockfd;
-}
-
-/**
- * Sends a message to a client. 
- * 
- * The message codes are defined in the messages header file. Each one will be parsed by the client 
- * which will result in differing behaviours.
- * 
- * It has to wait on a response from the client so that multiple 
- * calls to this function don't result in a joined buffer. Since the client throws away anything
- * after a new line, if the buffer is joined, data can be lost.
- **/
-int send_message(int sockfd, char msg_code, char* msg) {
-    // Concatenate the msg code and the message then transmit to the client
-    char buffer[512];
-    snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
-    int size = send(sockfd, buffer, strlen(buffer), 0);
-
-    // Wait for ACK from client
-    recv(sockfd, &buffer, sizeof(buffer), 0);
-
-    return size;
 }
 
 /**
@@ -209,15 +191,13 @@ int client_login(int sockfd) {
 
     // Get the username from the user
     char username[1024];
-    bzero(username, sizeof(username));
     send_message(sockfd, MSGC_INPUT, "Username: ");
-    int usr_size = recv(sockfd, &username, sizeof(username), 0);
+    int usr_size = receive_message(sockfd, username, sizeof(username));
 
     // Get the password from the user
     char password[1024];
-    bzero(password, sizeof(password));
     send_message(sockfd, MSGC_INPUT, "Password: ");
-    int pass_size = recv(sockfd, &password, sizeof(password), 0);
+    int pass_size = receive_message(sockfd, password, sizeof(password));
 
     if(usr_size == -1 || pass_size == -1) {
         return 0;
@@ -262,8 +242,6 @@ void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
     if(isdigit(input)) {
         // Convert to the proper integer, ex. '2' -> 2
         int selection = input - '0';
-        printf("SELECTION: %d\n", selection);
-
         switch(selection) {
             case 3:
                 *state = EXIT;
@@ -279,8 +257,7 @@ void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
 
 void update(enum game_state *state, int sockfd) {
     char buffer[1024];
-    bzero(buffer, sizeof(buffer));
-    recv(sockfd, &buffer, sizeof(buffer), 0);
+    receive_message(sockfd, buffer, sizeof(buffer));
 
     switch(*state) {
         case MAIN_MENU:
@@ -346,6 +323,7 @@ void* handle_clients_loop() {
 
                 // Close the socket linking to the client, freeing this thread to connect to another client
                 close(client_sockfd);
+                printf("Client disconnected. Socket: %d.\n", client_sockfd);
 
                 // Lock the mutex now that the client has disconnected and this thread is waiting
                 pthread_mutex_lock(&client_queue_mutex);
@@ -417,8 +395,8 @@ int main(int argc, char *argv[]) {
             error("Accept");
         }
         // Add the client to the queue
-        client_queue_add(newsockfd);
-        printf("Client connected. Socket: %d. Queue length: %d\n", newsockfd, client_queue_size);
+        int queue_size = client_queue_add(newsockfd);
+        printf("Client connected. Socket: %d. Queue length: %d\n", newsockfd, queue_size);
     }
 
     return 0;
