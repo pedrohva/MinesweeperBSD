@@ -27,7 +27,7 @@ int send_message(int sockfd, char msg_code, char* msg) {
     snprintf(buffer, sizeof buffer, "%c%s", msg_code, msg);
     int size = send(sockfd, buffer, strlen(buffer), 0);
 
-    // MSGC_ACK and MSGC_DATA don't actually contain a string message so we don't need to wait
+    // MSGC_ACK and MSGC_DATA don't actually contain a string message to print so we don't need to wait
     if((msg_code != MSGC_ACK) && (msg_code != MSGC_DATA)) {
         // Wait for ACK from client
         recv(sockfd, &buffer, sizeof(buffer), 0);

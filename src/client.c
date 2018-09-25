@@ -20,7 +20,8 @@ void error(char* message) {
 
 /**
  * Prints a message to the console. Will stop when the cursor meets a 
- * new line character ('\n')
+ * new line character ('\n'). Note: the first new line character met will 
+ * be printed as well.
  **/
 void print_message(int sockfd, char* message) {
     for(int i=0; i < strlen(message); i++) {
@@ -31,9 +32,6 @@ void print_message(int sockfd, char* message) {
             return;
         }
     }
-
-    // Sends an ACK to the server so that the next line - if any - can be sent
-    send_message(sockfd, MSGC_ACK, "");
 }
 
 /**
@@ -84,20 +82,27 @@ int main(int argc, char *argv[]) {
             error("Error with message received");
         }
         
+        // Perform a certain function depending on the message code (see message.h for list of codes)
         char code = buffer[0];
         switch(code) {
             case MSGC_PRINT:
                 // Print the message to the console
                 print_message(sockfd, server_msg);
+                // Sends an ACK to the server so that the next line - if any - can be sent
+                send_message(sockfd, MSGC_ACK, "");
                 break;
             case MSGC_INPUT:
                 // Print the message to the console and then waits for input to send to the server
                 print_message(sockfd, server_msg);
+                // Sends an ACK to the server so that the next line - if any - can be sent
+                send_message(sockfd, MSGC_ACK, "");
                 send_input(sockfd);
                 break;
             case MSGC_EXIT:
                 // Print the message to the console and then exit out of the program
                 print_message(sockfd, server_msg);
+                // Sends an ACK to the server so that the next line - if any - can be sent
+                send_message(sockfd, MSGC_ACK, "");
                 close(sockfd);
                 exit(0);
                 break;

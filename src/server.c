@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 
 #include "message.h"
+#include "minesweeper.h"
 
 #define PORT_DEFAULT            12345   // The port to listen to when no other option is given
 #define THREADPOOL_SIZE         3       // How many working threads will be handling clients at one time
@@ -20,7 +21,7 @@
 #define RNG_SEED_DEFAULT        42      // The seed used for the random number generator
 
 // Threadpool variables
-int client_queue_size = 0;  // How many clients waiting to connect
+int client_queue_size = 0;  // How many clients are waiting to connect
 struct request {
     int request_sockfd;     // The socket the client in the queue is connected to        
     struct request* next;   // Pointer to the next client in the queue
@@ -221,9 +222,114 @@ void draw_main_menu(int sockfd) {
 }
 
 /**
+ * Iterates through a single row in the Minesweeper field and proceeds to join all of the information
+ * of each tile in that row to a single string.
+ * This string is then sent to the client as a message
+ **/
+void send_minesweeper_row(int y, char row_letter, MinesweeperState *sweeper_state, int sockfd) {
+    // Make sure the y value passed isn't larger than the field bounds
+    if(y >= FIELD_HEIGHT) {
+        return;
+    }
+
+    // Iterate through each tile in the row and add the sprites to the sprite string
+    char sprite_string[FIELD_WIDTH]; 
+    for(int x = 0; x < FIELD_WIDTH; x++) {
+        // Choose the appropriate character to display depending on the current state of the tile
+        char sprite = ' ';
+        if(sweeper_state->field[x][y].revealed) {
+            if(sweeper_state->field[x][y].has_mine) {
+                sprite = MINE_SPRITE;
+            } else if(sweeper_state->field[x][y].has_flag) {
+                sprite = FLAG_SPRITE;
+            } else {
+                sprite = sweeper_state->field[x][y].adjacent_mines + '0';
+            }
+        }
+
+        // Add the tile to the sprite string
+        sprite_string[x] = sprite;
+    }
+
+    // Add a space between the tile sprites so it looks better when printed to a terminal
+    char sprite_string_spaces[FIELD_WIDTH * 2];
+    int x = 0;
+    for(int i = 0; i < FIELD_WIDTH * 2; i++) {
+        // If the number is odd we want a space, otherwise add a tile sprite
+        if(i & 1) {
+            sprite_string_spaces[i] = ' ';
+        } else { 
+            sprite_string_spaces[i] = sprite_string[x++];    
+        }
+    }
+
+    // This is the string that represents a row in the field that will then be sent to the client
+    char row_string[MESSAGE_MAX_SIZE];
+    // Add the sprites to the column labels 
+    snprintf(row_string, sizeof(row_string), "%c | %s\n", row_letter, sprite_string_spaces);
+    send_message(sockfd, MSGC_PRINT, row_string);
+}
+
+void tile_reveal_prompt(MinesweeperState *sweeper_state, int sockfd) {
+    send_message(sockfd, MSGC_INPUT, "Enter tile coordinate: ");
+    char buffer[MESSAGE_MAX_SIZE];
+    int size = receive_message(sockfd, buffer, sizeof(buffer));
+
+    // Check that only two characters where sent (MSGC + A1 + \0 = 4)
+    if(size != 4) {
+        send_message(sockfd, MSGC_PRINT, "A coordinate is only two character. Example: A1 or 1A, B5 or 5B.\n");
+        return;
+    }
+    char coord[2] = {buffer[1], buffer[2]};
+
+    int x, y;
+    // Check if the coordinate matches to a valid number
+    if(!convert_coordinate(coord, &x, &y)) {
+        send_message(sockfd, MSGC_PRINT, "Coordinate does not exist.\n");
+        return;
+    }
+
+    reveal_tile(x, y, sweeper_state);
+}
+
+void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
+    send_message(sockfd, MSGC_PRINT, "------- Minesweeper -------\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+
+    // Send string calculating number of mines
+    char mine_string[MESSAGE_MAX_SIZE];
+    snprintf(mine_string, sizeof(mine_string), "Mines remaining: %d\n", sweeper_state->mines_remaining);
+    send_message(sockfd, MSGC_PRINT, mine_string);
+    send_message(sockfd, MSGC_PRINT, "\n");
+
+
+    send_message(sockfd, MSGC_PRINT, "    1 2 3 4 5 6 7 8 9\n");
+    send_message(sockfd, MSGC_PRINT, "---------------------\n");
+
+    // Send the field and draw the tiles that are revealed
+    send_minesweeper_row(0, 'A', sweeper_state, sockfd);
+    send_minesweeper_row(1, 'B', sweeper_state, sockfd);
+    send_minesweeper_row(2, 'C', sweeper_state, sockfd);
+    send_minesweeper_row(3, 'D', sweeper_state, sockfd);
+    send_minesweeper_row(4, 'E', sweeper_state, sockfd);
+    send_minesweeper_row(5, 'F', sweeper_state, sockfd);
+    send_minesweeper_row(6, 'G', sweeper_state, sockfd);
+    send_minesweeper_row(7, 'H', sweeper_state, sockfd);
+    send_minesweeper_row(8, 'I', sweeper_state, sockfd);
+
+    send_message(sockfd, MSGC_PRINT, "\n");
+    send_message(sockfd, MSGC_PRINT, "Choose an option: \n");
+    send_message(sockfd, MSGC_PRINT, "(R)eveal tile\n");
+    send_message(sockfd, MSGC_PRINT, "(P)lace flag\n");
+    send_message(sockfd, MSGC_PRINT, "(Q)uit game\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+    send_message(sockfd, MSGC_INPUT, "Option (R,P,Q): ");
+}
+
+/**
  * Will call a draw function that depends on the current state of the game
  **/
-void draw(enum game_state *state, int sockfd) {
+void draw(enum game_state *state, MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "\n");
     int size = send_message(sockfd, MSGC_PRINT, "===================================================\n");
     send_message(sockfd, MSGC_PRINT, "\n");
@@ -235,6 +341,9 @@ void draw(enum game_state *state, int sockfd) {
     switch(*state) {
         case MAIN_MENU:
             draw_main_menu(sockfd);
+            break;
+        case PLAYING:
+            draw_playing_screen(sweeper_state, sockfd);
             break;
         default:
             break;
@@ -253,6 +362,9 @@ void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
         // Convert to the proper integer, ex. '2' -> 2
         int selection = input - '0';
         switch(selection) {
+            case 1:
+                *state = PLAYING;
+                break;
             case 3:
                 *state = EXIT;
                 break;
@@ -265,16 +377,37 @@ void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
     }
 }
 
+void update_playing_screen(int sockfd, enum game_state *state, MinesweeperState *sweeper_state, char *buffer) {
+    char input = buffer[1];
+
+    switch(input) {
+        case 'r':
+        case 'R':
+            tile_reveal_prompt(sweeper_state, sockfd);
+            break;
+        case 'q':
+        case 'Q':
+            *state = MAIN_MENU;
+            break;
+        default:
+            send_message(sockfd, MSGC_PRINT, "Not a valid input! Choose a letter from (R, P, Q)\n");
+            break;
+    }
+}
+
 /**
  * Waits for user input then calls the update function related to the current state the game is in.
  **/
-void update(enum game_state *state, int sockfd) {
+void update(enum game_state *state, MinesweeperState *sweeper_state, int sockfd) {
     char buffer[MESSAGE_MAX_SIZE];
     receive_message(sockfd, buffer, sizeof(buffer));
 
     switch(*state) {
         case MAIN_MENU:
             update_main_menu(sockfd, state, buffer);
+            break;
+        case PLAYING:
+            update_playing_screen(sockfd, state, sweeper_state, buffer);
             break;
         default:
             break;
@@ -288,15 +421,17 @@ void update(enum game_state *state, int sockfd) {
  **/
 void game_loop(int sockfd) {
     // Initialize the minesweeper game
-    enum game_state state = MAIN_MENU;
+    MinesweeperState sweeper_state;
+    minesweeper_init(&sweeper_state);
 
+    enum game_state state = MAIN_MENU;
     // Start the game loop that plays Minesweeper
     while(state != EXIT) {
         // Draw the screen representing the game state to the terminal
-        draw(&state, sockfd);
+        draw(&state, &sweeper_state, sockfd);
 
         // Update the game logic (including waiting for input)
-        update(&state, sockfd);
+        update(&state, &sweeper_state, sockfd);
     }
 
     // Send a message with a code that tells the client to exit and close the socket from their side
@@ -360,7 +495,10 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in server_addr;     // My address information 
 	struct sockaddr_in client_addr;     // Client's address information
 
+    srand(RNG_SEED_DEFAULT);
+
     // Ignore the SIGPIPE signal that is sent if the client is closed while we're reading or sending data
+    // This stops the server from crashing if a client is closed with ctrl+c
     signal(SIGPIPE, SIG_IGN);
 
     // Create the threadpool that will handle the clients
@@ -399,6 +537,7 @@ int main(int argc, char *argv[]) {
 		error("Listen");
 	}
     printf("Server is listening...\n");
+    printf("\n");
 
     // Start an infinite loop that handles all the incoming connections
     while(1) {
@@ -410,6 +549,9 @@ int main(int argc, char *argv[]) {
         }
         // Add the client to the queue
         int queue_size = client_queue_add(newsockfd);
+        // Note that the queue length can be that of the queue before it is read by a thread and the 
+        // connection to the client established. (Ie. If the length is 1, it doesn't necessarily mean 
+        // that all threads in the pool are occupied with other connections).
         printf("Client connected. Socket: %d. Queue length: %d\n", newsockfd, queue_size);
     }
 
