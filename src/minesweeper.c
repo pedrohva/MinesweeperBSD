@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <ctype.h>
-
-#include <stdio.h>
+#include <time.h>
 
 #include "minesweeper.h"
 
@@ -82,6 +81,19 @@ int flag_tile(int x, int y, MinesweeperState *state) {
     return 0;
 }
 
+void show_mines(MinesweeperState *state, int show_flags) {
+    for(int x = 0; x < FIELD_WIDTH; x++) {
+        for(int y = 0; y < FIELD_HEIGHT; y++) {
+            if(state->field[x][y].has_mine) {
+                state->field[x][y].revealed = 1;
+                state->field[x][y].has_flag = show_flags;
+            } else {
+                state->field[x][y].revealed = 0;
+            }
+        }
+    }
+}
+
 void reset_field(Tile field[FIELD_WIDTH][FIELD_HEIGHT]) {
     for(int x = 0; x < FIELD_WIDTH; x++) {
         for(int y = 0; y < FIELD_HEIGHT; y++) {
@@ -135,6 +147,8 @@ void minesweeper_init(MinesweeperState *state) {
     // Reset everything
     reset_field(state->field);
     place_mines(state);
+    state->game_won = 0;
+    state->game_start_time = time(NULL);
 
     // Iterate throughout the field and count how many mines can be found ajacent to each tile
     for(int x = 0; x < FIELD_WIDTH; x++){ 

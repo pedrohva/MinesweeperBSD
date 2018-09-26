@@ -18,6 +18,9 @@ typedef struct {
 typedef struct {
     Tile field[FIELD_WIDTH][FIELD_HEIGHT];
     int mines_remaining;
+    int game_won;
+    time_t game_start_time;
+    time_t game_time_taken;
 } MinesweeperState;
 
 void minesweeper_init(MinesweeperState *state);
@@ -28,6 +31,8 @@ void minesweeper_init(MinesweeperState *state);
 void reveal_tile(int x, int y, MinesweeperState *state);
 
 int flag_tile(int x, int y, MinesweeperState *state);
+
+void show_mines(MinesweeperState *state, int show_flags);
 
 /**
  * Converts a coordinate from the game (such as A1, 1A, B2, etc.) into coordinates 

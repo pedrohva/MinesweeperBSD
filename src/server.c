@@ -4,6 +4,7 @@
 #include <string.h>
 #include <signal.h>
 #include <ctype.h>
+#include <time.h>
 // Threads
 #include <pthread.h>     
 // Sockets
@@ -311,6 +312,7 @@ void tile_reveal_prompt(MinesweeperState *sweeper_state, enum game_state *state,
 
     // Check if the tile revealed was a mine 
     if(sweeper_state->field[x][y].has_mine) {
+        sweeper_state->game_time_taken = time(NULL) - sweeper_state->game_start_time;
         *state = GAMEOVER;
     }
 }
@@ -364,13 +366,23 @@ void draw_gameover_screen(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "------- Minesweeper -------\n");
     send_message(sockfd, MSGC_PRINT, "\n");
 
-    send_message(sockfd, MSGC_PRINT, "Game Over! You've hit a mine\n");
+    if(sweeper_state->game_won) {
+        send_message(sockfd, MSGC_PRINT, "You've won!\n");
+
+        // Create string with time won
+        char buffer[MESSAGE_MAX_SIZE];
+        snprintf(buffer, sizeof(buffer), "Time taken: %d seconds\n", (int)sweeper_state->game_time_taken);
+        send_message(sockfd, MSGC_PRINT, buffer);
+    } else {
+        send_message(sockfd, MSGC_PRINT, "Game Over! You've hit a mine\n");
+    }
     send_message(sockfd, MSGC_PRINT, "\n");
 
+    show_mines(sweeper_state, sweeper_state->game_won);
     draw_minesweeper_field(sweeper_state, sockfd);
 
     send_message(sockfd, MSGC_PRINT, "\n");
-    send_message(sockfd, MSGC_INPUT, "Press any key to continue...\n");
+    send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue...\n");
 }
 
 /**
@@ -404,7 +416,7 @@ void draw(enum game_state *state, MinesweeperState *sweeper_state, int sockfd) {
  * Waits for the user to send some input. 
  * If the user sends a number between 1 and 3, the game's state will be updated accordingly
  **/
-void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
+void update_main_menu(int sockfd, enum game_state *state, MinesweeperState *sweeper_state, char* buffer) {
     char input = buffer[1];
 
     // Check if the selection is a number
@@ -413,6 +425,7 @@ void update_main_menu(int sockfd, enum game_state *state, char* buffer) {
         int selection = input - '0';
         switch(selection) {
             case 1:
+                minesweeper_init(sweeper_state);
                 *state = PLAYING;
                 break;
             case 3:
@@ -447,6 +460,13 @@ void update_playing_screen(int sockfd, enum game_state *state, MinesweeperState 
             send_message(sockfd, MSGC_PRINT, "Not a valid input! Choose a letter from (R, P, Q)\n");
             break;
     }
+
+    // Check if the game was won 
+    if(sweeper_state->mines_remaining == 0) {
+        sweeper_state->game_won = 1;
+        sweeper_state->game_time_taken = time(NULL) - sweeper_state->game_start_time;
+        *state = GAMEOVER;
+    }
 }
 
 /**
@@ -458,7 +478,7 @@ void update(enum game_state *state, MinesweeperState *sweeper_state, int sockfd)
 
     switch(*state) {
         case MAIN_MENU:
-            update_main_menu(sockfd, state, buffer);
+            update_main_menu(sockfd, state, sweeper_state, buffer);
             break;
         case PLAYING:
             update_playing_screen(sockfd, state, sweeper_state, buffer);
@@ -477,9 +497,7 @@ void update(enum game_state *state, MinesweeperState *sweeper_state, int sockfd)
  * As this function is called by multiple threads, data relating to the game must be local.
  **/
 void game_loop(int sockfd) {
-    // Initialize the minesweeper game
-    MinesweeperState sweeper_state;
-    minesweeper_init(&sweeper_state);
+    MinesweeperState sweeper_state; // Holds all information about the game such as mine locations, field info, etc.
 
     enum game_state state = MAIN_MENU;
     // Start the game loop that plays Minesweeper
