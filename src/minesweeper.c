@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 
+#include <stdio.h>
+
 #include "minesweeper.h"
 
 int in_bounds(int x, int y) {
@@ -48,16 +50,33 @@ int convert_coordinate(char *coord, int *x, int *y) {
 
 /**
  * Sets a tile at the specified coordinates to revealed. 
- * 
- * Will return a 1 if the tile has no adjacent mines
  **/
-int reveal_tile(int x, int y, MinesweeperState *state) {
-    if(in_bounds(x, y)) {
+void reveal_tile(int x, int y, MinesweeperState *state) {
+    if(in_bounds(x, y) && (state->field[x][y].revealed == 0)) {
         state->field[x][y].revealed = 1;
-    }
 
-    if(state->field[x][y].adjacent_mines == 0) {
-        return 1;
+        // If the tile has a value of 0, recursively fill out until a border is made
+        if(state->field[x][y].adjacent_mines == 0) {
+            reveal_tile(x-1, y, state);
+            reveal_tile(x+1, y, state);
+            reveal_tile(x-1, y-1, state);
+            reveal_tile(x+1, y-1, state);
+            reveal_tile(x-1, y+1, state);
+            reveal_tile(x+1, y+1, state);
+            reveal_tile(x, y-1, state);
+            reveal_tile(x, y+1, state);
+        }
+    }
+}
+
+int flag_tile(int x, int y, MinesweeperState *state) {
+    if(in_bounds(x, y) && (state->field[x][y].revealed == 0)) {
+        if(state->field[x][y].has_mine) {
+            state->field[x][y].has_flag = 1;
+            state->field[x][y].revealed = 1;
+            state->mines_remaining--;
+            return 1;
+        }   
     }
 
     return 0;

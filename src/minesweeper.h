@@ -24,10 +24,10 @@ void minesweeper_init(MinesweeperState *state);
 
 /**
  * Sets a tile at the specified coordinates to revealed. 
- * 
- * Will return a 1 if the tile has no adjacent mines
  **/
-int reveal_tile(int x, int y, MinesweeperState *state);
+void reveal_tile(int x, int y, MinesweeperState *state);
+
+int flag_tile(int x, int y, MinesweeperState *state);
 
 /**
  * Converts a coordinate from the game (such as A1, 1A, B2, etc.) into coordinates 

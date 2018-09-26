@@ -40,6 +40,7 @@ pthread_mutex_t file_read_mutex = PTHREAD_MUTEX_INITIALIZER;
 enum game_state {
     MAIN_MENU,
     PLAYING,
+    GAMEOVER,
     HIGHSCORE,
     EXIT
 };
@@ -238,7 +239,7 @@ void send_minesweeper_row(int y, char row_letter, MinesweeperState *sweeper_stat
         // Choose the appropriate character to display depending on the current state of the tile
         char sprite = ' ';
         if(sweeper_state->field[x][y].revealed) {
-            if(sweeper_state->field[x][y].has_mine) {
+            if(sweeper_state->field[x][y].has_mine && !sweeper_state->field[x][y].has_flag) {
                 sprite = MINE_SPRITE;
             } else if(sweeper_state->field[x][y].has_flag) {
                 sprite = FLAG_SPRITE;
@@ -252,7 +253,7 @@ void send_minesweeper_row(int y, char row_letter, MinesweeperState *sweeper_stat
     }
 
     // Add a space between the tile sprites so it looks better when printed to a terminal
-    char sprite_string_spaces[FIELD_WIDTH * 2];
+    char sprite_string_spaces[(FIELD_WIDTH * 2)+1];
     int x = 0;
     for(int i = 0; i < FIELD_WIDTH * 2; i++) {
         // If the number is odd we want a space, otherwise add a tile sprite
@@ -262,6 +263,7 @@ void send_minesweeper_row(int y, char row_letter, MinesweeperState *sweeper_stat
             sprite_string_spaces[i] = sprite_string[x++];    
         }
     }
+    sprite_string_spaces[FIELD_WIDTH * 2] = '\0';
 
     // This is the string that represents a row in the field that will then be sent to the client
     char row_string[MESSAGE_MAX_SIZE];
@@ -270,14 +272,30 @@ void send_minesweeper_row(int y, char row_letter, MinesweeperState *sweeper_stat
     send_message(sockfd, MSGC_PRINT, row_string);
 }
 
-void tile_reveal_prompt(MinesweeperState *sweeper_state, int sockfd) {
+void draw_minesweeper_field(MinesweeperState *sweeper_state, int sockfd) {
+    send_message(sockfd, MSGC_PRINT, "    1 2 3 4 5 6 7 8 9\n");
+    send_message(sockfd, MSGC_PRINT, "---------------------\n");
+
+    // Draw the tiles that are revealed
+    send_minesweeper_row(0, 'A', sweeper_state, sockfd);
+    send_minesweeper_row(1, 'B', sweeper_state, sockfd);
+    send_minesweeper_row(2, 'C', sweeper_state, sockfd);
+    send_minesweeper_row(3, 'D', sweeper_state, sockfd);
+    send_minesweeper_row(4, 'E', sweeper_state, sockfd);
+    send_minesweeper_row(5, 'F', sweeper_state, sockfd);
+    send_minesweeper_row(6, 'G', sweeper_state, sockfd);
+    send_minesweeper_row(7, 'H', sweeper_state, sockfd);
+    send_minesweeper_row(8, 'I', sweeper_state, sockfd);
+}
+
+void tile_reveal_prompt(MinesweeperState *sweeper_state, enum game_state *state, int sockfd) {
     send_message(sockfd, MSGC_INPUT, "Enter tile coordinate: ");
     char buffer[MESSAGE_MAX_SIZE];
     int size = receive_message(sockfd, buffer, sizeof(buffer));
 
     // Check that only two characters where sent (MSGC + A1 + \0 = 4)
     if(size != 4) {
-        send_message(sockfd, MSGC_PRINT, "A coordinate is only two character. Example: A1 or 1A, B5 or 5B.\n");
+        send_message(sockfd, MSGC_PRINT, "A coordinate is only two characters. Example: A1 or 1A, B5 or 5B.\n");
         return;
     }
     char coord[2] = {buffer[1], buffer[2]};
@@ -290,6 +308,35 @@ void tile_reveal_prompt(MinesweeperState *sweeper_state, int sockfd) {
     }
 
     reveal_tile(x, y, sweeper_state);
+
+    // Check if the tile revealed was a mine 
+    if(sweeper_state->field[x][y].has_mine) {
+        *state = GAMEOVER;
+    }
+}
+
+void tile_flag_prompt(MinesweeperState *sweeper_state, int sockfd) {
+    send_message(sockfd, MSGC_INPUT, "Enter tile coordinate: ");
+    char buffer[MESSAGE_MAX_SIZE];
+    int size = receive_message(sockfd, buffer, sizeof(buffer));
+
+    // Check that only two characters where sent (MSGC + A1 + \0 = 4)
+    if(size != 4) {
+        send_message(sockfd, MSGC_PRINT, "A coordinate is only two characters. Example: A1 or 1A, B5 or 5B.\n");
+        return;
+    }
+    char coord[2] = {buffer[1], buffer[2]};
+
+    int x, y;
+    // Check if the coordinate matches to a valid number
+    if(!convert_coordinate(coord, &x, &y)) {
+        send_message(sockfd, MSGC_PRINT, "Coordinate does not exist.\n");
+        return;
+    }
+
+    if(!flag_tile(x, y, sweeper_state)) {
+        send_message(sockfd, MSGC_PRINT, "There is no mine at this location.\n");
+    }
 }
 
 void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
@@ -302,20 +349,7 @@ void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, mine_string);
     send_message(sockfd, MSGC_PRINT, "\n");
 
-
-    send_message(sockfd, MSGC_PRINT, "    1 2 3 4 5 6 7 8 9\n");
-    send_message(sockfd, MSGC_PRINT, "---------------------\n");
-
-    // Send the field and draw the tiles that are revealed
-    send_minesweeper_row(0, 'A', sweeper_state, sockfd);
-    send_minesweeper_row(1, 'B', sweeper_state, sockfd);
-    send_minesweeper_row(2, 'C', sweeper_state, sockfd);
-    send_minesweeper_row(3, 'D', sweeper_state, sockfd);
-    send_minesweeper_row(4, 'E', sweeper_state, sockfd);
-    send_minesweeper_row(5, 'F', sweeper_state, sockfd);
-    send_minesweeper_row(6, 'G', sweeper_state, sockfd);
-    send_minesweeper_row(7, 'H', sweeper_state, sockfd);
-    send_minesweeper_row(8, 'I', sweeper_state, sockfd);
+    draw_minesweeper_field(sweeper_state, sockfd);
 
     send_message(sockfd, MSGC_PRINT, "\n");
     send_message(sockfd, MSGC_PRINT, "Choose an option: \n");
@@ -324,6 +358,19 @@ void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "(Q)uit game\n");
     send_message(sockfd, MSGC_PRINT, "\n");
     send_message(sockfd, MSGC_INPUT, "Option (R,P,Q): ");
+}
+
+void draw_gameover_screen(MinesweeperState *sweeper_state, int sockfd) {
+    send_message(sockfd, MSGC_PRINT, "------- Minesweeper -------\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+
+    send_message(sockfd, MSGC_PRINT, "Game Over! You've hit a mine\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+
+    draw_minesweeper_field(sweeper_state, sockfd);
+
+    send_message(sockfd, MSGC_PRINT, "\n");
+    send_message(sockfd, MSGC_INPUT, "Press any key to continue...\n");
 }
 
 /**
@@ -344,6 +391,9 @@ void draw(enum game_state *state, MinesweeperState *sweeper_state, int sockfd) {
             break;
         case PLAYING:
             draw_playing_screen(sweeper_state, sockfd);
+            break;
+        case GAMEOVER:
+            draw_gameover_screen(sweeper_state, sockfd);
             break;
         default:
             break;
@@ -383,7 +433,11 @@ void update_playing_screen(int sockfd, enum game_state *state, MinesweeperState 
     switch(input) {
         case 'r':
         case 'R':
-            tile_reveal_prompt(sweeper_state, sockfd);
+            tile_reveal_prompt(sweeper_state, state, sockfd);
+            break;
+        case 'p':
+        case 'P':
+            tile_flag_prompt(sweeper_state, sockfd);
             break;
         case 'q':
         case 'Q':
@@ -408,6 +462,9 @@ void update(enum game_state *state, MinesweeperState *sweeper_state, int sockfd)
             break;
         case PLAYING:
             update_playing_screen(sockfd, state, sweeper_state, buffer);
+            break;
+        case GAMEOVER:
+            *state = MAIN_MENU;
             break;
         default:
             break;
