@@ -25,6 +25,8 @@ struct game {
     struct game* next;   // Pointer to the next game completed
 };
 
+void leaderboard_free();
+
 void leaderboard_add_score(char* username, int time_taken);
 
 void leaderboard_update_user_games(char* username, int game_won);

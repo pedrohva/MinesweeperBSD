@@ -15,6 +15,32 @@ struct user* tail_userinfo = NULL;   // TAIL of the linked list of the user deta
 struct game* head_gameinfo = NULL;   // HEAD of the linked list of the queue of clients
 struct game* tail_gameinfo = NULL;   // TAIL of the linked list of the queue of clients
 
+void leaderboard_free() {
+    // Free the user info list
+    struct user* userinfo;
+    while(head_userinfo != NULL) {
+        userinfo = head_userinfo;
+        head_userinfo = head_userinfo->next;
+
+        userinfo->next = NULL;
+        free(userinfo);
+    }
+
+    // Free the game info list
+    struct game* gameinfo;
+    while(head_gameinfo != NULL) {
+        gameinfo = head_gameinfo;
+        head_gameinfo = head_gameinfo->next;
+
+        gameinfo->next = NULL;
+        free(gameinfo);
+    }
+
+    // Set tail pointers to NULL
+    tail_gameinfo = NULL;
+    tail_userinfo = NULL;
+}
+
 int username_exists(char* username) {
     // Iterate through the list while checking if the usernames match the one that was passed
     struct user* userinfo = head_userinfo;

@@ -17,16 +17,20 @@
 #include "minesweeper.h"
 #include "leaderboard.h"
 
-#define PORT_DEFAULT            12345   // The port to listen to when no other option is given
-#define THREADPOOL_SIZE         10       // How many working threads will be handling clients at one time
-#define CONNECTION_BACKLOG_MAX  200     // The maximum number of connections the server will support
-#define RNG_SEED_DEFAULT        42      // The seed used for the random number generator
+#define PORT_DEFAULT            12345       // The port to listen to when no other option is given
+#define THREADPOOL_SIZE         10          // How many working threads will be handling clients at one time
+#define CONNECTION_BACKLOG_MAX  200         // The maximum number of connections the server will support
+#define RNG_SEED_DEFAULT        42          // The seed used for the random number generator
+
+// Listen on server_sockfd, new connection on newsockfd 
+int server_sockfd, newsockfd;              
 
 // Threadpool variables
-int client_queue_size = 0;  // How many clients are waiting to connect
+pthread_t threadpool[THREADPOOL_SIZE];      // Holds the individual threads that form the threadpool
+int client_queue_size = 0;                  // How many clients are waiting to connect
 struct request {
-    int request_sockfd;     // The socket the client in the queue is connected to        
-    struct request* next;   // Pointer to the next client in the queue
+    int request_sockfd;                     // The socket the client in the queue is connected to        
+    struct request* next;                   // Pointer to the next client in the queue
 };
 struct request* head_client_queue = NULL;   // HEAD of the linked list of the queue of clients
 struct request* tail_client_queue = NULL;   // TAIL of the linked list of the queue of clients
@@ -64,6 +68,55 @@ enum game_state {
 void error(char* message) {
     perror(message);
     exit(1);
+}
+
+void client_queue_free() {
+    struct request* current;
+    while(head_client_queue != NULL) {
+        current = head_client_queue;
+        head_client_queue = head_client_queue->next;
+
+        current->next = NULL;
+        free(current);
+    }
+
+    // Make tail pointer NULL
+    tail_client_queue = NULL;
+}
+
+void free_memory() {
+    client_queue_free();
+    leaderboard_free();
+}
+
+void signal_handler(int signal_num) {
+    // Ignore the SIGPIPE signal that is sent if the client is closed while we're reading or sending data
+    // This stops the server from crashing if a client is closed with ctrl+c and the server can't communicate
+    // with it anymore. We don't need to worry about closing the socket from our side as the thread handling it
+    // will do it for us when it realises it can't send a message to the client anymore.
+    if(signal_num == SIGPIPE) {
+        return;
+    }
+
+    // If the server receives an interrupt signal from a ctrl+c command, close all the threads safely and deallocate 
+    // memory where necessary. 
+    if(signal_num == SIGINT) {
+        // Cancel all threads in the threadpool
+        for(int i=0; i < THREADPOOL_SIZE; i++) {
+            pthread_cancel(threadpool[i]);
+        }
+
+        close(server_sockfd);
+        free_memory();
+        exit(0);
+    }
+}
+
+void thread_cleanup(void *arg) {
+    // Send a message to the client to close
+    send_message(*(int *)arg, MSGC_EXIT, "\n");
+    // Close the socket connected to the client
+    //close(*(int *)arg);
 }
 
 void leaderboard_read_lock() {
@@ -659,9 +712,6 @@ void game_loop(int sockfd, char* username) {
         // Update the game logic (including waiting for input)
         update(&state, &sweeper_state, sockfd);
     }
-
-    // Send a message with a code that tells the client to exit and close the socket from their side
-    send_message(sockfd, MSGC_EXIT, "Thanks for playing! Disconnecting...\n");
 }
 
 /**
@@ -686,6 +736,9 @@ void* handle_clients_loop() {
                 // Unlock the mutex to the queue while this thread is connected to a client
                 pthread_mutex_unlock(&client_queue_mutex);
 
+                // Cleanup routine to disconnect from client cleanly if this thread is cancelled
+                pthread_cleanup_push(thread_cleanup, &client_sockfd);
+
                 // Display the welcome banner and check if the client's username and password are authorized to proceed
                 if(client_login(client_sockfd, username)) {
                     // The client has authorization to play the game
@@ -693,6 +746,9 @@ void* handle_clients_loop() {
                     send_message(client_sockfd, MSGC_PRINT, "Login successful\n");
                     send_message(client_sockfd, MSGC_PRINT, "\n");
                     game_loop(client_sockfd, username);
+
+                    // Send a message with a code that tells the client to exit and close the socket from their side
+                    send_message(client_sockfd, MSGC_EXIT, "Thanks for playing! Disconnecting...\n");
                 }else {
                     // The username and password were wrong
                     send_message(client_sockfd, MSGC_PRINT, "\n");
@@ -702,6 +758,9 @@ void* handle_clients_loop() {
                 // Close the socket linking to the client, freeing this thread to connect to another client
                 close(client_sockfd);
                 printf("Client disconnected. Socket: %d.\n", client_sockfd);
+
+                // Remove the cleanup routine since the client has already disconnected
+                pthread_cleanup_pop(0);
 
                 // Lock the mutex now that the client has disconnected and this thread is waiting
                 pthread_mutex_lock(&client_queue_mutex);
@@ -719,19 +778,16 @@ void* handle_clients_loop() {
 *   Initializes the server
 **/
 int main(int argc, char *argv[]) {
-    int sockfd, newsockfd;              // Listen on sock_fd, new connection on newsockfd 
     int port_num;                       // The port number to listen on
     struct sockaddr_in server_addr;     // My address information 
 	struct sockaddr_in client_addr;     // Client's address information
 
     srand(RNG_SEED_DEFAULT);
 
-    // Ignore the SIGPIPE signal that is sent if the client is closed while we're reading or sending data
-    // This stops the server from crashing if a client is closed with ctrl+c
-    signal(SIGPIPE, SIG_IGN);
+    signal(SIGINT, signal_handler);
+    signal(SIGPIPE, signal_handler);
 
     // Create the threadpool that will handle the clients
-    pthread_t  threadpool[THREADPOOL_SIZE];
     for(int i=0; i < THREADPOOL_SIZE; i++) {
         pthread_create(&threadpool[i], NULL, handle_clients_loop, NULL);
     }
@@ -744,7 +800,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Generate the socket
-	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+	if((server_sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		error("Socket generation");
 	}
 
@@ -757,12 +813,12 @@ int main(int argc, char *argv[]) {
 	server_addr.sin_addr.s_addr = INADDR_ANY;       // Auto-fill with my IP 
 
     // Binds the socket to listen on to this server's address
-    if(bind(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
+    if(bind(server_sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) == -1) {
 		error("Binding socket");
 	}
 
     // Start listening
-    if(listen(sockfd, CONNECTION_BACKLOG_MAX) == -1) {
+    if(listen(server_sockfd, CONNECTION_BACKLOG_MAX) == -1) {
 		error("Listen");
 	}
     printf("Server is listening...\n");
@@ -772,7 +828,7 @@ int main(int argc, char *argv[]) {
     while(1) {
         // Wait until a client connects to the server
         socklen_t sockin_size = sizeof(struct sockaddr_in);
-        newsockfd = accept(sockfd, (struct sockaddr *)&client_addr, &sockin_size);
+        newsockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, &sockin_size);
         if(newsockfd == -1) {
             error("Accept");
         }

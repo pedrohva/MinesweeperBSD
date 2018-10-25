@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 // Sockets
 #include <unistd.h>
 #include <sys/types.h>
@@ -10,12 +11,28 @@
 
 #include "message.h"
 
+// The socket field descriptor
+int sockfd;                         
+
 /**
 * Error catching code.
 **/
 void error(char* message) {
     perror(message);
     exit(1);
+}
+
+void signal_handler(int signal_num) {
+    // Close the program safely if a SIGPIPE or SIGINT signal is received
+    if(signal_num == SIGPIPE) {
+        printf("Lost connection to the server. Disconnecting...\n");
+        close(sockfd);
+        exit(0);
+    }
+    if(signal_num == SIGINT) {
+        close(sockfd);
+        exit(0);
+    }
 }
 
 /**
@@ -39,7 +56,6 @@ void print_message(int sockfd, char* message) {
  * minesweeper through the connection to the server
  **/
 int main(int argc, char *argv[]) {
-    int sockfd;                         // The socket field descriptor
     int port_num;                       // The port number to send to
     struct sockaddr_in server_addr;     // The server's address information
     struct hostent *host;               // Defines the host computer on the network
@@ -58,6 +74,11 @@ int main(int argc, char *argv[]) {
 	if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
 		error("Socket generation");
 	}
+    
+    // Bind the SIGPIPE signal to our signal handler
+    signal(SIGPIPE, signal_handler);
+    // Bind the SIGINT signal to our signal handler 
+    signal(SIGINT, signal_handler);
 
     // Set all values in the buffer to 0
     bzero((char *) &server_addr, sizeof(server_addr));
@@ -76,6 +97,15 @@ int main(int argc, char *argv[]) {
     char buffer[MESSAGE_MAX_SIZE];
     char *server_msg = buffer + 1;
     while(1) {
+        // Test if the socket is still alive
+        int error_num = 0;
+        socklen_t len = sizeof (error_num);
+        getsockopt (sockfd, SOL_SOCKET, SO_ERROR, &error_num, &len);
+        if(error_num != 0) {
+            // Tell our signal handler to act as if a SIGPIPE signal was sent
+            signal_handler(SIGPIPE);
+        }
+
         // Receive message from server
         int msg_size = receive_message(sockfd, buffer, sizeof(buffer));
         if(msg_size == -1) {
