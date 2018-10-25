@@ -24,12 +24,7 @@ void error(char* message) {
 
 void signal_handler(int signal_num) {
     // Close the program safely if a SIGPIPE or SIGINT signal is received
-    if(signal_num == SIGPIPE) {
-        printf("Lost connection to the server. Disconnecting...\n");
-        close(sockfd);
-        exit(0);
-    }
-    if(signal_num == SIGINT) {
+    if(signal_num == SIGPIPE || signal_num == SIGINT) {
         close(sockfd);
         exit(0);
     }
@@ -103,6 +98,7 @@ int main(int argc, char *argv[]) {
         getsockopt (sockfd, SOL_SOCKET, SO_ERROR, &error_num, &len);
         if(error_num != 0) {
             // Tell our signal handler to act as if a SIGPIPE signal was sent
+            printf("Lost connection to the server. Disconnecting...\n");
             signal_handler(SIGPIPE);
         }
 

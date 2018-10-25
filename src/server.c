@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <ctype.h>
 #include <time.h>
+#include <errno.h>
 // Threads
 #include <pthread.h>     
 // Sockets
@@ -22,8 +23,7 @@
 #define CONNECTION_BACKLOG_MAX  200         // The maximum number of connections the server will support
 #define RNG_SEED_DEFAULT        42          // The seed used for the random number generator
 
-// Listen on server_sockfd, new connection on newsockfd 
-int server_sockfd, newsockfd;              
+int server_keep_alive = 1;           
 
 // Threadpool variables
 pthread_t threadpool[THREADPOOL_SIZE];      // Holds the individual threads that form the threadpool
@@ -90,25 +90,10 @@ void free_memory() {
 }
 
 void signal_handler(int signal_num) {
-    // Ignore the SIGPIPE signal that is sent if the client is closed while we're reading or sending data
-    // This stops the server from crashing if a client is closed with ctrl+c and the server can't communicate
-    // with it anymore. We don't need to worry about closing the socket from our side as the thread handling it
-    // will do it for us when it realises it can't send a message to the client anymore.
-    if(signal_num == SIGPIPE) {
-        return;
-    }
-
     // If the server receives an interrupt signal from a ctrl+c command, close all the threads safely and deallocate 
     // memory where necessary. 
     if(signal_num == SIGINT) {
-        // Cancel all threads in the threadpool
-        for(int i=0; i < THREADPOOL_SIZE; i++) {
-            pthread_cancel(threadpool[i]);
-        }
-
-        close(server_sockfd);
-        free_memory();
-        exit(0);
+        server_keep_alive = 0;
     }
 }
 
@@ -778,14 +763,26 @@ void* handle_clients_loop() {
 *   Initializes the server
 **/
 int main(int argc, char *argv[]) {
+    int server_sockfd, newsockfd;       // Listen on server_sockfd, new connection on newsockfd 
     int port_num;                       // The port number to listen on
     struct sockaddr_in server_addr;     // My address information 
 	struct sockaddr_in client_addr;     // Client's address information
 
+    // Seed the random number generator
     srand(RNG_SEED_DEFAULT);
 
-    signal(SIGINT, signal_handler);
-    signal(SIGPIPE, signal_handler);
+    // Catch the interrupt signal and pass it to the signal handler
+    struct sigaction act;
+	memset (&act, '\0', sizeof(act));
+    act.sa_handler = signal_handler;
+	// act.sa_flags = SA_RESTART; - Flag is not set so that the accept() in the loop below can be interrupted
+    sigaction(SIGINT, &act, NULL);
+
+    // Ignore the SIGPIPE signal that is sent if the client is closed while we're reading or sending data
+    // This stops the server from crashing if a client is closed with ctrl+c and the server can't communicate
+    // with it anymore. We don't need to worry about closing the socket from our side as the thread handling it
+    // will do it for us when it realises it can't send a message to the client anymore.
+    signal(SIGPIPE, SIG_IGN);
 
     // Create the threadpool that will handle the clients
     for(int i=0; i < THREADPOOL_SIZE; i++) {
@@ -825,11 +822,17 @@ int main(int argc, char *argv[]) {
     printf("\n");
 
     // Start an infinite loop that handles all the incoming connections
-    while(1) {
+    while(server_keep_alive) {
         // Wait until a client connects to the server
         socklen_t sockin_size = sizeof(struct sockaddr_in);
         newsockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, &sockin_size);
-        if(newsockfd == -1) {
+
+        // Error checking
+        if(errno == EINTR) {
+            // This will be thrown if accept() is interrupted by a system call (SIGINT)
+            break;
+        } else if(newsockfd == -1) {
+            // Something wrong happened when trying to connect to a client
             error("Accept");
         }
         // Add the client to the queue
@@ -839,6 +842,14 @@ int main(int argc, char *argv[]) {
         // that all threads in the pool are occupied with other connections).
         printf("Client connected. Socket: %d. Queue length: %d\n", newsockfd, queue_size);
     }
+
+    printf("\n");
+    // Cancel all threads in the threadpool
+    for(int i=0; i < THREADPOOL_SIZE; i++) {
+        pthread_cancel(threadpool[i]);
+    }
+    close(server_sockfd);
+    free_memory();
 
     return 0;
 }
