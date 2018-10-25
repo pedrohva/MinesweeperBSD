@@ -4,6 +4,9 @@
 
 #include "minesweeper.h"
 
+/**
+ * Makes sure the coordinates fall in bounds of the field
+ **/
 int in_bounds(int x, int y) {
     return (x >= 0) && (x < FIELD_WIDTH) && (y >= 0) && (y < FIELD_HEIGHT);
 }
@@ -23,12 +26,12 @@ int convert_coordinate(char *coord, int *x, int *y) {
             int x_coord = coord[i] - '0';
             // If it's a number, we want it to be the x coordinate
             if(in_bounds(x_coord - 1, 0)) {
-                *x = x_coord - 1;   // Need to take one away as A1 means that the x is the first in the array, ie. 0.
+                *x = x_coord - 1;   // Need to take 1 away as A1 means that the x is the first in the array, ie. 0.
             } else {
                 return 0;
             }
         } else {
-            // If it's not a number, we assum it's a character - which will be put into the y coordinate
+            // If it's not a number, we assume it's a character - which will be put into the y coordinate
             if(coord[i] >= 'A' && coord[i] <= 'Z') {
                 *y = coord[i] - 'A';
             } else if(coord[i] >= 'a' && coord[i] <= 'z') {
@@ -68,6 +71,12 @@ void reveal_tile(int x, int y, MinesweeperState *state) {
     }
 }
 
+/**
+ * Attempts to place a flag at a coordinate in the game field.
+ * 
+ * Return   1 - Flag placed at a location where mine resides
+ *          0 - Flag no placed because there is no mine present
+ **/
 int flag_tile(int x, int y, MinesweeperState *state) {
     if(in_bounds(x, y) && (state->field[x][y].revealed == 0)) {
         if(state->field[x][y].has_mine) {
@@ -81,6 +90,9 @@ int flag_tile(int x, int y, MinesweeperState *state) {
     return 0;
 }
 
+/**
+ * Reveals all the mines on the field. Will also hide every tile that is not a mine
+ **/
 void show_mines(MinesweeperState *state, int show_flags) {
     for(int x = 0; x < FIELD_WIDTH; x++) {
         for(int y = 0; y < FIELD_HEIGHT; y++) {
@@ -94,6 +106,9 @@ void show_mines(MinesweeperState *state, int show_flags) {
     }
 }
 
+/**
+ * Clears a field by removing all the mines and making everything hidden
+ **/
 void reset_field(Tile field[FIELD_WIDTH][FIELD_HEIGHT]) {
     for(int x = 0; x < FIELD_WIDTH; x++) {
         for(int y = 0; y < FIELD_HEIGHT; y++) {
@@ -105,10 +120,17 @@ void reset_field(Tile field[FIELD_WIDTH][FIELD_HEIGHT]) {
     }
 }
 
+/**
+ * Returns true if a coordinate contains a mine
+ **/
 int tile_contains_mine(int x, int y, Tile field[FIELD_WIDTH][FIELD_HEIGHT]) {
     return field[x][y].has_mine;
 }
 
+/**
+ * Returns how many mines are adjacent to the tile at the given coordinate.
+ * Counts diagonal tiles too.
+ **/
 int num_mines_adjacent(int x, int y, Tile field[FIELD_WIDTH][FIELD_HEIGHT]) {
     int num_mines = 0;
 
@@ -125,6 +147,10 @@ int num_mines_adjacent(int x, int y, Tile field[FIELD_WIDTH][FIELD_HEIGHT]) {
     return num_mines;
 }
 
+/**
+ * Places a pre determined number of mines randomly across the field.
+ * Not thread-safe as it uses the rand() function
+ **/
 void place_mines(MinesweeperState *state) {
     state->mines_remaining = NUM_MINES;
 
@@ -143,6 +169,10 @@ void place_mines(MinesweeperState *state) {
     }
 }
 
+/**
+ * Prepare a Minesweeper field by randomly placing mines and starting the timer.
+ * Will reset the previous board state. 
+ **/
 void minesweeper_init(MinesweeperState *state) {
     // Reset everything
     reset_field(state->field);

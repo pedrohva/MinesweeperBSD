@@ -18,7 +18,7 @@
 
 #define PORT_DEFAULT            12345   // The port to listen to when no other option is given
 #define THREADPOOL_SIZE         3       // How many working threads will be handling clients at one time
-#define CONNECTION_BACKLOG_MAX  20      // The maximum number of connections the server will support
+#define CONNECTION_BACKLOG_MAX  200     // The maximum number of connections the server will support
 #define RNG_SEED_DEFAULT        42      // The seed used for the random number generator
 
 // Threadpool variables
@@ -273,6 +273,9 @@ void send_minesweeper_row(int y, char row_letter, MinesweeperState *sweeper_stat
     send_message(sockfd, MSGC_PRINT, row_string);
 }
 
+/**
+ * Sends a series of strings to the client containing each row of the Minesweeper field. 
+ **/
 void draw_minesweeper_field(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "    1 2 3 4 5 6 7 8 9\n");
     send_message(sockfd, MSGC_PRINT, "---------------------\n");
@@ -289,6 +292,10 @@ void draw_minesweeper_field(MinesweeperState *sweeper_state, int sockfd) {
     send_minesweeper_row(8, 'I', sweeper_state, sockfd);
 }
 
+/**
+ * Prompts the user for a coordinate. The given location in the Minesweeper field will then be revealed. If the revealed 
+ * tile contained a mine, the game will be lost.
+ **/
 void tile_reveal_prompt(MinesweeperState *sweeper_state, enum game_state *state, int sockfd) {
     send_message(sockfd, MSGC_INPUT, "Enter tile coordinate: ");
     char buffer[MESSAGE_MAX_SIZE];
@@ -317,6 +324,12 @@ void tile_reveal_prompt(MinesweeperState *sweeper_state, enum game_state *state,
     }
 }
 
+/**
+ * Prompts the user for a coordinate. Will then match that coordinate to a location in the Minesweeper field
+ * and attempt to place a flag at that location. 
+ * Flags will only be placed if there's a mine at that location. The user will be notified if the attempt was 
+ * successful. 
+ **/
 void tile_flag_prompt(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_INPUT, "Enter tile coordinate: ");
     char buffer[MESSAGE_MAX_SIZE];
@@ -341,6 +354,9 @@ void tile_flag_prompt(MinesweeperState *sweeper_state, int sockfd) {
     }
 }
 
+/**
+ * Draws the screen that is shown to the user while the Minesweeper game is being played
+ **/
 void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "------- Minesweeper -------\n");
     send_message(sockfd, MSGC_PRINT, "\n");
@@ -362,6 +378,9 @@ void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_INPUT, "Option (R,P,Q): ");
 }
 
+/**
+ * Draws the screen shown to the user when the game is finished (either through winning or losing)
+ **/
 void draw_gameover_screen(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "------- Minesweeper -------\n");
     send_message(sockfd, MSGC_PRINT, "\n");
@@ -440,6 +459,10 @@ void update_main_menu(int sockfd, enum game_state *state, MinesweeperState *swee
     }
 }
 
+/**
+ * Receives input from the user in order to play the Minesweeper game. 
+ * The main game loop.
+ **/
 void update_playing_screen(int sockfd, enum game_state *state, MinesweeperState *sweeper_state, char *buffer) {
     char input = buffer[1];
 
@@ -616,7 +639,7 @@ int main(int argc, char *argv[]) {
 
     // Start an infinite loop that handles all the incoming connections
     while(1) {
-        // Wait until a client sends message to the server
+        // Wait until a client connects to the server
         socklen_t sockin_size = sizeof(struct sockaddr_in);
         newsockfd = accept(sockfd, (struct sockaddr *)&client_addr, &sockin_size);
         if(newsockfd == -1) {

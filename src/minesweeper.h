@@ -23,6 +23,10 @@ typedef struct {
     time_t game_time_taken;
 } MinesweeperState;
 
+/**
+ * Prepare a Minesweeper field by randomly placing mines and starting the timer.
+ * Will reset the previous board state. 
+ **/
 void minesweeper_init(MinesweeperState *state);
 
 /**
@@ -30,8 +34,17 @@ void minesweeper_init(MinesweeperState *state);
  **/
 void reveal_tile(int x, int y, MinesweeperState *state);
 
+/**
+ * Attempts to place a flag at a coordinate in the game field.
+ * 
+ * Return   1 - Flag placed at a location where mine resides
+ *          0 - Flag no placed because there is no mine present
+ **/
 int flag_tile(int x, int y, MinesweeperState *state);
 
+/**
+ * Reveals all the mines on the field. Will also hide every tile that is not a mine
+ **/
 void show_mines(MinesweeperState *state, int show_flags);
 
 /**
