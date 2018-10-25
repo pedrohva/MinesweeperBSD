@@ -17,15 +17,12 @@ struct game* tail_gameinfo = NULL;  // TAIL of the linked list of the queue of c
 
 int username_exists(char* username) {
     // Iterate through the list while checking if the usernames match the one that was passed
-    if(userinfo_size > 0) {
-        struct user* userinfo = head_userinfo;
-        // Check if we haven't reached the end of the list
-        if(userinfo != NULL) {
-            if(strcmp(username, userinfo->username) == 0) {
-                return 1;
-            }
-            userinfo = userinfo->next;
+    struct user* userinfo = head_userinfo;
+    while(userinfo != NULL) {
+        if(strcmp(username, userinfo->username) == 0) {
+            return 1;
         }
+        userinfo = userinfo->next;
     }
 
     return 0;
@@ -80,17 +77,15 @@ void leaderboard_update_user_games(char* username, int game_won) {
     // If the user exists, increment their details accordingly 
     if(username_exists(username)) {
         struct user* userinfo = head_userinfo;
-        for(int i=0; i<=userinfo_size; i++) {
-            if(userinfo != NULL) {
-                if(strcmp(username, userinfo->username) == 0) {
-                    userinfo->games_played++;
-                    if(game_won) {
-                        userinfo->games_won++;
-                    }
-                    return;
+        while(userinfo != NULL) {
+            if(strcmp(username, userinfo->username) == 0) {
+                userinfo->games_played++;
+                if(game_won) {
+                    userinfo->games_won++;
                 }
-                userinfo = userinfo->next;
+                return;
             }
+            userinfo = userinfo->next;
         }
     } else { 
         // If the user doesn't exist in the list yet, add to the list
@@ -99,8 +94,8 @@ void leaderboard_update_user_games(char* username, int game_won) {
 }
 
 void get_userinfo(char* username, int* games_played, int* games_won) {
-    *games_played = 0;
-    *games_won = 0;
+    *games_played = -1;
+    *games_won = -1;
 
     if(username_exists(username)) {
         struct user* userinfo = head_userinfo;

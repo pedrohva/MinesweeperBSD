@@ -188,9 +188,9 @@ int client_login_verification(char* username, char* password) {
  **/
 int client_login(int sockfd, char* username) {
     // Display the welcome banner
-    send_message(sockfd, MSGC_PRINT, "===================================================\n");
-    send_message(sockfd, MSGC_PRINT, "= Welcome to the online Minesweeper gaming system =\n");
-    send_message(sockfd, MSGC_PRINT, "===================================================\n");
+    send_message(sockfd, MSGC_PRINT, "===========================================================\n");
+    send_message(sockfd, MSGC_PRINT, "=     Welcome to the online Minesweeper gaming system     =\n");
+    send_message(sockfd, MSGC_PRINT, "===========================================================\n");
     send_message(sockfd, MSGC_PRINT, "\n");
 
     // Get the username from the user
@@ -401,7 +401,8 @@ void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
 
 void draw_highscore_screen(MinesweeperState *sweeper_state, int sockfd) {
     if(get_gameinfo_size() < 1) {
-        send_message(sockfd, MSGC_PRINT, "The leaderboard is empty.\n");
+        send_message(sockfd, MSGC_PRINT, "---- The leaderboard is empty ----\n");
+        send_message(sockfd, MSGC_PRINT, "\n");
     } else {
         // Iterate through the list of won games
         struct game* gameinfo = get_gameinfo_head();
@@ -417,7 +418,7 @@ void draw_highscore_screen(MinesweeperState *sweeper_state, int sockfd) {
         }
     }
 
-    send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue\n");
+    send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue");
 }
 
 /**
@@ -451,7 +452,7 @@ void draw_gameover_screen(MinesweeperState *sweeper_state, int sockfd) {
  **/
 void draw(enum game_state *state, MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "\n");
-    int size = send_message(sockfd, MSGC_PRINT, "===================================================\n");
+    int size = send_message(sockfd, MSGC_PRINT, "===========================================================\n");
     send_message(sockfd, MSGC_PRINT, "\n");
     // Check if the client is still connected
     if(size < 0) {
