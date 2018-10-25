@@ -3,11 +3,15 @@
 
 #define FIELD_WIDTH     9
 #define FIELD_HEIGHT    9
-#define NUM_MINES       10
+#define NUM_MINES       2
 
 #define MINE_SPRITE     '*'
 #define FLAG_SPRITE     '+'
 
+/**
+ * A tile is one point in the Minesweeper field. Ie., the field is made of 
+ * many tiles.
+ **/
 typedef struct {
     int adjacent_mines;
     int revealed;
@@ -15,12 +19,16 @@ typedef struct {
     int has_flag;
 } Tile;
 
+/**
+ * Contains information about a current game of Minesweeper
+ **/
 typedef struct {
     Tile field[FIELD_WIDTH][FIELD_HEIGHT];
     int mines_remaining;
     int game_won;
     time_t game_start_time;
     time_t game_time_taken;
+    char* username;
 } MinesweeperState;
 
 /**

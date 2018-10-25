@@ -15,6 +15,7 @@
 
 #include "message.h"
 #include "minesweeper.h"
+#include "leaderboard.h"
 
 #define PORT_DEFAULT            12345   // The port to listen to when no other option is given
 #define THREADPOOL_SIZE         3       // How many working threads will be handling clients at one time
@@ -185,7 +186,7 @@ int client_login_verification(char* username, char* password) {
  * 
  * Returns a 1 if login was successful
  **/
-int client_login(int sockfd) {
+int client_login(int sockfd, char* username) {
     // Display the welcome banner
     send_message(sockfd, MSGC_PRINT, "===================================================\n");
     send_message(sockfd, MSGC_PRINT, "= Welcome to the online Minesweeper gaming system =\n");
@@ -193,9 +194,8 @@ int client_login(int sockfd) {
     send_message(sockfd, MSGC_PRINT, "\n");
 
     // Get the username from the user
-    char username[MESSAGE_MAX_SIZE];
     send_message(sockfd, MSGC_INPUT, "Username: ");
-    int usr_size = receive_message(sockfd, username, sizeof(username));
+    int usr_size = receive_message(sockfd, username, MESSAGE_MAX_SIZE);
 
     // Get the password from the user
     char password[MESSAGE_MAX_SIZE];
@@ -293,6 +293,23 @@ void draw_minesweeper_field(MinesweeperState *sweeper_state, int sockfd) {
 }
 
 /**
+ * End the current Minesweeper game. Modify the leaderboard to include the user's game progress
+ **/
+void minesweeper_game_end(MinesweeperState *sweeper_state, enum game_state *state, int game_won) {
+    sweeper_state->game_won = game_won;
+    sweeper_state->game_time_taken = time(NULL) - sweeper_state->game_start_time;
+    *state = GAMEOVER;
+
+    // Add the score for the won game to the leaderboard
+    if(game_won) {
+        leaderboard_add_score(sweeper_state->username, (int)sweeper_state->game_time_taken);
+    }
+
+    // Modify this user's leaderboard data to increase number of games played
+    leaderboard_update_user_games(sweeper_state->username, game_won);
+}
+
+/**
  * Prompts the user for a coordinate. The given location in the Minesweeper field will then be revealed. If the revealed 
  * tile contained a mine, the game will be lost.
  **/
@@ -315,12 +332,15 @@ void tile_reveal_prompt(MinesweeperState *sweeper_state, enum game_state *state,
         return;
     }
 
-    reveal_tile(x, y, sweeper_state);
-
-    // Check if the tile revealed was a mine 
-    if(sweeper_state->field[x][y].has_mine) {
-        sweeper_state->game_time_taken = time(NULL) - sweeper_state->game_start_time;
-        *state = GAMEOVER;
+    // Check if the tile has already been revealed
+    if(sweeper_state->field[x][y].revealed) {
+        send_message(sockfd, MSGC_PRINT, "This tile has already been revealed");
+    } else {
+        reveal_tile(x, y, sweeper_state);
+        // Check if the tile revealed was a mine 
+        if(sweeper_state->field[x][y].has_mine) {
+            minesweeper_game_end(sweeper_state, state, 0);
+        }
     }
 }
 
@@ -349,6 +369,7 @@ void tile_flag_prompt(MinesweeperState *sweeper_state, int sockfd) {
         return;
     }
 
+    // Place a flag at the location
     if(!flag_tile(x, y, sweeper_state)) {
         send_message(sockfd, MSGC_PRINT, "There is no mine at this location.\n");
     }
@@ -376,6 +397,27 @@ void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_PRINT, "(Q)uit game\n");
     send_message(sockfd, MSGC_PRINT, "\n");
     send_message(sockfd, MSGC_INPUT, "Option (R,P,Q): ");
+}
+
+void draw_highscore_screen(MinesweeperState *sweeper_state, int sockfd) {
+    if(get_gameinfo_size() < 1) {
+        send_message(sockfd, MSGC_PRINT, "The leaderboard is empty.\n");
+    } else {
+        // Iterate through the list of won games
+        struct game* gameinfo = get_gameinfo_head();
+        while(gameinfo != NULL) {
+            int games_played, games_won;
+            get_userinfo(gameinfo->username, &games_played, &games_won);
+
+            // Print the details of the won game
+            char buffer[MESSAGE_MAX_SIZE];
+            snprintf(buffer, sizeof(buffer), "%s \t %d seconds \t %d games won, %d games played\n", gameinfo->username, gameinfo->time_taken, games_won, games_played);
+            send_message(sockfd, MSGC_PRINT, buffer);
+            gameinfo = gameinfo->next;
+        }
+    }
+
+    send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue\n");
 }
 
 /**
@@ -426,6 +468,9 @@ void draw(enum game_state *state, MinesweeperState *sweeper_state, int sockfd) {
         case GAMEOVER:
             draw_gameover_screen(sweeper_state, sockfd);
             break;
+        case HIGHSCORE:
+            draw_highscore_screen(sweeper_state, sockfd);
+            break;
         default:
             break;
     }
@@ -446,6 +491,9 @@ void update_main_menu(int sockfd, enum game_state *state, MinesweeperState *swee
             case 1:
                 minesweeper_init(sweeper_state);
                 *state = PLAYING;
+                break;
+            case 2:
+                *state = HIGHSCORE;
                 break;
             case 3:
                 *state = EXIT;
@@ -477,6 +525,7 @@ void update_playing_screen(int sockfd, enum game_state *state, MinesweeperState 
             break;
         case 'q':
         case 'Q':
+            minesweeper_game_end(sweeper_state, state, 0);
             *state = MAIN_MENU;
             break;
         default:
@@ -486,9 +535,7 @@ void update_playing_screen(int sockfd, enum game_state *state, MinesweeperState 
 
     // Check if the game was won 
     if(sweeper_state->mines_remaining == 0) {
-        sweeper_state->game_won = 1;
-        sweeper_state->game_time_taken = time(NULL) - sweeper_state->game_start_time;
-        *state = GAMEOVER;
+        minesweeper_game_end(sweeper_state, state, 1);
     }
 }
 
@@ -506,6 +553,7 @@ void update(enum game_state *state, MinesweeperState *sweeper_state, int sockfd)
         case PLAYING:
             update_playing_screen(sockfd, state, sweeper_state, buffer);
             break;
+        case HIGHSCORE:
         case GAMEOVER:
             *state = MAIN_MENU;
             break;
@@ -519,8 +567,9 @@ void update(enum game_state *state, MinesweeperState *sweeper_state, int sockfd)
  * show and which function to call.
  * As this function is called by multiple threads, data relating to the game must be local.
  **/
-void game_loop(int sockfd) {
+void game_loop(int sockfd, char* username) {
     MinesweeperState sweeper_state; // Holds all information about the game such as mine locations, field info, etc.
+    sweeper_state.username = username+1;
 
     enum game_state state = MAIN_MENU;
     // Start the game loop that plays Minesweeper
@@ -541,7 +590,10 @@ void game_loop(int sockfd) {
 *   It will attempt to connect to a client and then start playing the game until the client
 *   closes its connection.
 **/
-void* handle_clients_loop() {    
+void* handle_clients_loop() {
+    // The current username of the client connected to this thread
+    char username[MESSAGE_MAX_SIZE];
+
     // Lock the mutex to the client queue
     pthread_mutex_lock(&client_queue_mutex);
 
@@ -556,12 +608,12 @@ void* handle_clients_loop() {
                 pthread_mutex_unlock(&client_queue_mutex);
 
                 // Display the welcome banner and check if the client's username and password are authorized to proceed
-                if(client_login(client_sockfd)) {
+                if(client_login(client_sockfd, username)) {
                     // The client has authorization to play the game
                     send_message(client_sockfd, MSGC_PRINT, "\n");
                     send_message(client_sockfd, MSGC_PRINT, "Login successful\n");
                     send_message(client_sockfd, MSGC_PRINT, "\n");
-                    game_loop(client_sockfd);
+                    game_loop(client_sockfd, username);
                 }else {
                     // The username and password were wrong
                     send_message(client_sockfd, MSGC_PRINT, "\n");
