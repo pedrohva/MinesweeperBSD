@@ -12,8 +12,8 @@ int gameinfo_size = 0;  // How many clients are waiting to connect
 struct user* head_userinfo = NULL;   // HEAD of the linked list of the user details
 struct user* tail_userinfo = NULL;   // TAIL of the linked list of the user details
 
-struct game* head_gameinfo = NULL;  // HEAD of the linked list of the queue of clients
-struct game* tail_gameinfo = NULL;  // TAIL of the linked list of the queue of clients
+struct game* head_gameinfo = NULL;   // HEAD of the linked list of the queue of clients
+struct game* tail_gameinfo = NULL;   // TAIL of the linked list of the queue of clients
 
 int username_exists(char* username) {
     // Iterate through the list while checking if the usernames match the one that was passed
@@ -64,13 +64,84 @@ void leaderboard_add_score(char* username, int time_taken) {
     if(gameinfo_size == 0) {
         // Just add the score if the list is empty
         head_gameinfo = gameinfo;
-        tail_gameinfo = gameinfo;
+        gameinfo_size++;
     } else {
-        // Add the score while sorting the list
-        tail_gameinfo->next = gameinfo;
-        tail_gameinfo = gameinfo;
+        // Check if the score is should be at the top of the list
+        if(gameinfo->time_taken > head_gameinfo->time_taken) {
+            gameinfo->next = head_gameinfo;
+            head_gameinfo = gameinfo;
+            gameinfo_size++;
+            return;
+        }
+
+        // The data for the user who just won a game
+        int user_games_won, user_games_played;
+        // The data for the current score in the list
+        int iterator_games_won, iterator_games_played;
+
+        // Check if the score at the top of the list is equal to the user's score
+        if(gameinfo->time_taken == head_gameinfo->time_taken) {
+            get_userinfo(gameinfo->username, &user_games_played, &user_games_won);
+            get_userinfo(head_gameinfo->username, &iterator_games_played, &iterator_games_won);
+            // Place the user at the top of the list if they've won less games
+            if(user_games_won < iterator_games_won) {
+                gameinfo->next = head_gameinfo;
+                head_gameinfo = gameinfo;
+                gameinfo_size++;
+                return;
+            }
+        }
+
+        // Iterate through the list to find a spot to place the score
+        struct game* game_iterator = head_gameinfo;
+        while(game_iterator != NULL) {
+            // Check if the score fits after the current item in the list
+            if(gameinfo->time_taken <= game_iterator->time_taken) {
+                // Check if the scores are equal (to apply the games won rule) AND we can place the score after the current one
+                if(gameinfo->time_taken == game_iterator->time_taken) {
+                    get_userinfo(gameinfo->username, &user_games_played, &user_games_won);
+                    get_userinfo(game_iterator->username, &iterator_games_played, &iterator_games_won);
+
+                    // Insert after the current item in the list if this user has won more games
+                    if(user_games_won >= iterator_games_won) {
+                        gameinfo->next = game_iterator->next;
+                        game_iterator->next = gameinfo;
+                        gameinfo_size++;
+                        return;
+                    }
+                }
+                // Check if we have reached the tail of the list
+                if(game_iterator->next == NULL) {
+                    gameinfo->next = NULL;
+                    game_iterator->next = gameinfo;
+                    gameinfo_size++;
+                    return;
+                }
+                // Check if the score fits between two scores in the middle of the list
+                if(gameinfo->time_taken > game_iterator->next->time_taken) {
+                    gameinfo->next = game_iterator->next;
+                    game_iterator->next = gameinfo;
+                    gameinfo_size++;
+                    return;
+                }
+
+                // Check if the next score will be equal AND we need to place the score before the next one (due to games won rule)
+                if(gameinfo->time_taken == game_iterator->next->time_taken) {
+                    get_userinfo(gameinfo->username, &user_games_played, &user_games_won);
+                    get_userinfo(game_iterator->next->username, &iterator_games_played, &iterator_games_won);
+
+                    if(user_games_won < iterator_games_won) {
+                        gameinfo->next = game_iterator->next;
+                        game_iterator->next = gameinfo;
+                        gameinfo_size++;
+                        return;
+                    }
+                }
+            }
+
+            game_iterator = game_iterator->next;
+        }
     }
-    gameinfo_size++;
 }
 
 void leaderboard_update_user_games(char* username, int game_won) {
