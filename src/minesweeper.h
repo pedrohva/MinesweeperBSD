@@ -3,7 +3,7 @@
 
 #define FIELD_WIDTH     9
 #define FIELD_HEIGHT    9
-#define NUM_MINES       2
+#define NUM_MINES       10
 
 #define MINE_SPRITE     '*'
 #define FLAG_SPRITE     '+'
@@ -33,7 +33,7 @@ typedef struct {
 
 /**
  * Prepare a Minesweeper field by randomly placing mines and starting the timer.
- * Will reset the previous board state. 
+ * Will reset the previous board state. Not thread safe as it uses the rand function
  **/
 void minesweeper_init(MinesweeperState *state);
 

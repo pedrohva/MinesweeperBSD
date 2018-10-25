@@ -171,7 +171,7 @@ void place_mines(MinesweeperState *state) {
 
 /**
  * Prepare a Minesweeper field by randomly placing mines and starting the timer.
- * Will reset the previous board state. 
+ * Will reset the previous board state. Not thread safe as it uses the rand function
  **/
 void minesweeper_init(MinesweeperState *state) {
     // Reset everything

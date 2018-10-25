@@ -18,7 +18,7 @@
 #include "leaderboard.h"
 
 #define PORT_DEFAULT            12345   // The port to listen to when no other option is given
-#define THREADPOOL_SIZE         3       // How many working threads will be handling clients at one time
+#define THREADPOOL_SIZE         10       // How many working threads will be handling clients at one time
 #define CONNECTION_BACKLOG_MAX  200     // The maximum number of connections the server will support
 #define RNG_SEED_DEFAULT        42      // The seed used for the random number generator
 
@@ -38,6 +38,17 @@ pthread_cond_t client_queue_got_request = PTHREAD_COND_INITIALIZER;
 // File read mutex
 pthread_mutex_t file_read_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Mutex used to access the rand function when creating a game
+pthread_mutex_t rand_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Mutex used to access the leaderboard by solving the Reader-Writer problem
+pthread_mutex_t leaderboard_rmutex = PTHREAD_MUTEX_INITIALIZER;     // Mutex that controls readers
+pthread_mutex_t leaderboard_wmutex = PTHREAD_MUTEX_INITIALIZER;     // Mutex that controls writers
+pthread_mutex_t leaderboard_rcmutex = PTHREAD_MUTEX_INITIALIZER;    // Protects the rc variable
+pthread_mutex_t leaderboard_wcmutex = PTHREAD_MUTEX_INITIALIZER;    // Protects the wc variable
+int leaderboard_rc = 0; // The current number of readers of the leaderboard
+int leaderboard_wc = 0; // The current number of writers of the leaderboard
+
 // Contains the states that the game can be in when being played
 enum game_state {
     MAIN_MENU,
@@ -53,6 +64,57 @@ enum game_state {
 void error(char* message) {
     perror(message);
     exit(1);
+}
+
+void leaderboard_read_lock() {
+    pthread_mutex_lock(&leaderboard_rmutex);    // Indicate reader wants to enter the critical section
+    pthread_mutex_lock(&leaderboard_rcmutex);
+
+    leaderboard_rc++;
+    // If first reader, lock the leaderboard from being written to
+    if(leaderboard_rc == 1) {
+        pthread_mutex_lock(&leaderboard_wmutex);    
+    }
+
+    pthread_mutex_unlock(&leaderboard_rcmutex);
+    pthread_mutex_unlock(&leaderboard_rmutex);
+}
+
+void leaderboard_read_unlock() {
+    pthread_mutex_lock(&leaderboard_rcmutex);   // Reserve rc to avoid race conditions
+
+    leaderboard_rc--;
+    // If last reader, allow the leaderboard to be written to
+    if(leaderboard_rc == 0) {
+        pthread_mutex_unlock(&leaderboard_wmutex);
+    }
+
+    pthread_mutex_unlock(&leaderboard_rcmutex);
+}
+
+void leaderboard_write_lock() {
+    pthread_mutex_lock(&leaderboard_wcmutex);   // Reserve wc to avoid race conditions
+    
+    leaderboard_wc++;
+    // If first writer, lock the readers from accessing the leaderboard
+    if(leaderboard_wc == 1) {
+        pthread_mutex_lock(&leaderboard_rmutex);
+    }
+
+    pthread_mutex_unlock(&leaderboard_wcmutex);
+    pthread_mutex_lock(&leaderboard_wmutex);    // Reserve permission to access the leaderboard
+}
+
+void leaderboard_write_unlock() {
+    pthread_mutex_unlock(&leaderboard_wmutex);  // Allow others to access the leaderboard if they need to
+    
+    pthread_mutex_lock(&leaderboard_wcmutex);
+    leaderboard_wc--;
+    // If last writer, allow readers to access the leaderboard
+    if(leaderboard_wc == 0) {
+        pthread_mutex_unlock(&leaderboard_rmutex);
+    }
+    pthread_mutex_unlock(&leaderboard_wcmutex);
 }
 
 /**
@@ -143,6 +205,7 @@ int client_queue_pop() {
  * Returns a 1 if there is a match
  **/
 int client_login_verification(char* username, char* password) {
+    int successful = 0;
     // Remove the newline character from the username and password if necessary
     if((strlen(username)-1 > 0) && (username[strlen(username)-1] == '\n')) {
         username[strlen(username)-1] = '\0';
@@ -156,7 +219,7 @@ int client_login_verification(char* username, char* password) {
     char pass[MESSAGE_MAX_SIZE];
 
     // Lock mutex in order to access the authentication file
-    //pthread_mutex_lock(&file_read_mutex);
+    pthread_mutex_lock(&file_read_mutex);
 
     // Open the authentication file to check for usernames and passwords
     FILE *fp=fopen("Authentication.txt", "r");
@@ -169,16 +232,16 @@ int client_login_verification(char* username, char* password) {
         if(strcmp(username, user) == 0) {
             if(strcmp(password, pass) == 0) {
                 // Username and password matched
-                return 1;
+                successful = 1;
             }
         }
     }
 
     // Unlock the mutex to the file so other threads can access it 
-    //pthread_mutex_unlock(&file_read_mutex);
+    pthread_mutex_unlock(&file_read_mutex);
 
     // Username and password did not match
-    return 0;
+    return successful;
 }
 
 /**
@@ -300,6 +363,9 @@ void minesweeper_game_end(MinesweeperState *sweeper_state, enum game_state *stat
     sweeper_state->game_time_taken = time(NULL) - sweeper_state->game_start_time;
     *state = GAMEOVER;
 
+    // Writer critical condition enter
+    leaderboard_write_lock();
+
     // Add the score for the won game to the leaderboard
     if(game_won) {
         leaderboard_add_score(sweeper_state->username, (int)sweeper_state->game_time_taken);
@@ -307,6 +373,9 @@ void minesweeper_game_end(MinesweeperState *sweeper_state, enum game_state *stat
 
     // Modify this user's leaderboard data to increase number of games played
     leaderboard_update_user_games(sweeper_state->username, game_won);
+
+    // Writer critical condition exit
+    leaderboard_write_unlock();
 }
 
 /**
@@ -400,6 +469,9 @@ void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
 }
 
 void draw_highscore_screen(MinesweeperState *sweeper_state, int sockfd) {
+    // Reader critical condition enter
+    leaderboard_read_lock();
+
     if(get_gameinfo_size() < 1) {
         send_message(sockfd, MSGC_PRINT, "---- The leaderboard is empty ----\n");
         send_message(sockfd, MSGC_PRINT, "\n");
@@ -417,6 +489,9 @@ void draw_highscore_screen(MinesweeperState *sweeper_state, int sockfd) {
             gameinfo = gameinfo->next;
         }
     }
+
+    // Reader critical condition exit
+    leaderboard_read_unlock();
 
     send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue");
 }
@@ -490,7 +565,10 @@ void update_main_menu(int sockfd, enum game_state *state, MinesweeperState *swee
         int selection = input - '0';
         switch(selection) {
             case 1:
+                // Lock the rand mutex so that the rand function can be used
+                pthread_mutex_lock(&rand_mutex);
                 minesweeper_init(sweeper_state);
+                pthread_mutex_unlock(&rand_mutex);
                 *state = PLAYING;
                 break;
             case 2:
