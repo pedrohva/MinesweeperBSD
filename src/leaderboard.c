@@ -15,6 +15,10 @@ struct user* tail_userinfo = NULL;   // TAIL of the linked list of the user deta
 struct game* head_gameinfo = NULL;   // HEAD of the linked list of the queue of clients
 struct game* tail_gameinfo = NULL;   // TAIL of the linked list of the queue of clients
 
+/**
+ * Fress all of the memory allocated to the nodes in the two lists. Will also set the head and 
+ * tail pointers to NULL.
+ **/
 void leaderboard_free() {
     // Free the user info list
     struct user* userinfo;
@@ -41,6 +45,11 @@ void leaderboard_free() {
     tail_userinfo = NULL;
 }
 
+/**
+ * Check if the username passed already exists in the leaderboard.
+ * Return   1   If username exists
+ *          0   If no username was found in the leaderboard
+ **/
 int username_exists(char* username) {
     // Iterate through the list while checking if the usernames match the one that was passed
     struct user* userinfo = head_userinfo;
@@ -54,6 +63,12 @@ int username_exists(char* username) {
     return 0;
 }
 
+/**
+ * Add a user to the list so their records can be tracked. 
+ * As this function is only meant to be called when updating records, and to avoid adding
+ * another iteration through the list, this function assumes the username is unique (ie. 
+ * already checked by the function that calls this one).
+ **/
 void leaderboard_add_user(char* username, int game_won) {
     // Create the game structure
     struct user* userinfo = (struct user*)malloc(sizeof(struct user));
@@ -76,6 +91,10 @@ void leaderboard_add_user(char* username, int game_won) {
     userinfo_size++;
 }
 
+/**
+ * Add a record of a won game to the leaderboard. This new score is automatically
+ * sorted during the insert operation following rules set by the task sheet.
+ **/
 void leaderboard_add_score(char* username, int time_taken) {
     // Create the game structure
     struct game* gameinfo = (struct game*)malloc(sizeof(struct game));
@@ -170,6 +189,11 @@ void leaderboard_add_score(char* username, int time_taken) {
     }
 }
 
+/**
+ * Update the record of games played and won by the user passed to this function.
+ * Will increment the number of games played by 1 and will increment games won depending if the game was won as passed to the function.
+ * If the username does not exist in the leaderboard, it will add it and set games played to 1. 
+ **/
 void leaderboard_update_user_games(char* username, int game_won) {
     // If the user exists, increment their details accordingly 
     if(username_exists(username)) {
@@ -190,6 +214,10 @@ void leaderboard_update_user_games(char* username, int game_won) {
     }
 }
 
+/**
+ * Get the number of games played and won by an user in the leaderboard.
+ * If the user does not exists, the values for both variables will be -1.
+ **/
 void get_userinfo(char* username, int* games_played, int* games_won) {
     *games_played = -1;
     *games_won = -1;
@@ -207,14 +235,23 @@ void get_userinfo(char* username, int* games_played, int* games_won) {
     }
 }
 
+/**
+ * Get the HEAD pointer for the game info list
+ **/
 struct game* get_gameinfo_head() {
     return head_gameinfo;
 }
 
+/**
+ * Get the number of users in the leaderboard
+ **/
 int get_userinfolist_size() {
     return userinfo_size;
 }
 
+/**
+ * Get the number of games won in the leaderboard
+ **/
 int get_gameinfo_size() {
     return gameinfo_size;
 }

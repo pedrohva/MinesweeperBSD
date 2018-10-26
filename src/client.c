@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <errno.h>
 // Sockets
 #include <unistd.h>
 #include <sys/types.h>
@@ -14,6 +15,9 @@
 // The socket field descriptor
 int sockfd;                         
 
+// Controls when the client should exit from its infinite loop
+int client_keep_alive = 1;
+
 /**
 * Error catching code.
 **/
@@ -22,9 +26,15 @@ void error(char* message) {
     exit(1);
 }
 
+/**
+ * Will set the flags necessary to close the program when some signals are received
+ **/
 void signal_handler(int signal_num) {
     // Close the program safely if a SIGPIPE or SIGINT signal is received
-    if(signal_num == SIGPIPE || signal_num == SIGINT) {
+    if(signal_num == SIGPIPE) {
+        client_keep_alive = 0;
+    } else if(signal_num == SIGINT) {
+        // Not particularly signal safe, but if user presses ctrl+c, we want to close ASAP
         close(sockfd);
         exit(0);
     }
@@ -70,10 +80,9 @@ int main(int argc, char *argv[]) {
 		error("Socket generation");
 	}
     
-    // Bind the SIGPIPE signal to our signal handler
-    signal(SIGPIPE, signal_handler);
-    // Bind the SIGINT signal to our signal handler 
+    // Catch the interrupt signal and pass it to the signal handler
     signal(SIGINT, signal_handler);
+    signal(SIGPIPE, signal_handler);
 
     // Set all values in the buffer to 0
     bzero((char *) &server_addr, sizeof(server_addr));
@@ -91,15 +100,14 @@ int main(int argc, char *argv[]) {
     // Start main loop
     char buffer[MESSAGE_MAX_SIZE];
     char *server_msg = buffer + 1;
-    while(1) {
+    while(client_keep_alive) {
         // Test if the socket is still alive
         int error_num = 0;
         socklen_t len = sizeof (error_num);
         getsockopt (sockfd, SOL_SOCKET, SO_ERROR, &error_num, &len);
         if(error_num != 0) {
-            // Tell our signal handler to act as if a SIGPIPE signal was sent
             printf("Lost connection to the server. Disconnecting...\n");
-            signal_handler(SIGPIPE);
+            break;
         }
 
         // Receive message from server
@@ -137,5 +145,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    close(sockfd);
     return 0;
 }

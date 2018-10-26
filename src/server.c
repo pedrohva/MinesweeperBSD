@@ -2,9 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include <ctype.h>
 #include <time.h>
+// Signals
+#include <signal.h>
 #include <errno.h>
 // Threads
 #include <pthread.h>     
@@ -19,10 +20,13 @@
 #include "leaderboard.h"
 
 #define PORT_DEFAULT            12345       // The port to listen to when no other option is given
-#define THREADPOOL_SIZE         10          // How many working threads will be handling clients at one time
+#define THREADPOOL_SIZE         2          // How many working threads will be handling clients at one time
 #define CONNECTION_BACKLOG_MAX  200         // The maximum number of connections the server will support
 #define RNG_SEED_DEFAULT        42          // The seed used for the random number generator
 
+/* ================================================ GLOBAL VARIABLES ================================================ */
+
+// Determines if the server should be kept running
 int server_keep_alive = 1;           
 
 // Threadpool variables
@@ -62,20 +66,27 @@ enum game_state {
     EXIT
 };
 
+/* ================================================ HELPER FUNCTIONS ================================================ */
 /**
-*   Error logging code.
+*   Error logging before exiting the program.
 **/
 void error(char* message) {
     perror(message);
     exit(1);
 }
 
+/**
+ * Deallocate memory assigned to the queue which contains clients awaiting connections
+ **/
 void client_queue_free() {
     struct request* current;
     while(head_client_queue != NULL) {
         current = head_client_queue;
         head_client_queue = head_client_queue->next;
 
+        // Tell all the clients in the queue to exit
+        send_message(current->request_sockfd, MSGC_EXIT, "Server is offline.\n");
+        close(current->request_sockfd);
         current->next = NULL;
         free(current);
     }
@@ -84,26 +95,40 @@ void client_queue_free() {
     tail_client_queue = NULL;
 }
 
+/**
+ * Deallocate all memory associated with the server
+ **/
 void free_memory() {
     client_queue_free();
     leaderboard_free();
 }
 
+/**
+ * Will set a flag to stop the server from running when an interrupt signal is received
+ **/
 void signal_handler(int signal_num) {
-    // If the server receives an interrupt signal from a ctrl+c command, close all the threads safely and deallocate 
-    // memory where necessary. 
+    // If the server receives an interrupt signal from a ctrl+c command, stop the infinite loop
     if(signal_num == SIGINT) {
         server_keep_alive = 0;
     }
 }
 
+/**
+ * Called when a thread that is handling a client has to exit prematurely. Will tell the client to exit
+ * while also closing the socket
+ **/
 void thread_cleanup(void *arg) {
     // Send a message to the client to close
     send_message(*(int *)arg, MSGC_EXIT, "\n");
     // Close the socket connected to the client
-    //close(*(int *)arg);
+    close(*(int *)arg);
 }
 
+/* ======================================== LEADERBOARD READER-WRITER MUTEX ========================================= */
+/**
+ * Called by the reader when entering the critical section.
+ * Will attempt to get access to the leaderboard.
+ **/
 void leaderboard_read_lock() {
     pthread_mutex_lock(&leaderboard_rmutex);    // Indicate reader wants to enter the critical section
     pthread_mutex_lock(&leaderboard_rcmutex);
@@ -118,6 +143,10 @@ void leaderboard_read_lock() {
     pthread_mutex_unlock(&leaderboard_rmutex);
 }
 
+/**
+ * Called by the reader when exiting the critical section.
+ * Will signal that other threads can access the leaderboard.
+ **/
 void leaderboard_read_unlock() {
     pthread_mutex_lock(&leaderboard_rcmutex);   // Reserve rc to avoid race conditions
 
@@ -130,6 +159,10 @@ void leaderboard_read_unlock() {
     pthread_mutex_unlock(&leaderboard_rcmutex);
 }
 
+/**
+ * Called by the writer when entering the critical section.
+ * Will attempt to gain access to the leaderboard. In this implementation, writer's have preference to the leaderboard
+ **/
 void leaderboard_write_lock() {
     pthread_mutex_lock(&leaderboard_wcmutex);   // Reserve wc to avoid race conditions
     
@@ -143,6 +176,10 @@ void leaderboard_write_lock() {
     pthread_mutex_lock(&leaderboard_wmutex);    // Reserve permission to access the leaderboard
 }
 
+/**
+ * Called by the writer when exiting the critical section.
+ * Will signal that other threads can access the leaderboard.
+ **/
 void leaderboard_write_unlock() {
     pthread_mutex_unlock(&leaderboard_wmutex);  // Allow others to access the leaderboard if they need to
     
@@ -155,6 +192,7 @@ void leaderboard_write_unlock() {
     pthread_mutex_unlock(&leaderboard_wcmutex);
 }
 
+/* ================================================== CLIENT QUEUE ================================================== */
 /**
 *   Add the client that is attempting to connect to the queue.
 *   This is done by adding the socket the client is communicating from to a LinkedList. 
@@ -236,6 +274,7 @@ int client_queue_pop() {
     return client_sockfd;
 }
 
+/* ================================================== CLIENT LOGIN ================================================== */
 /**
  * Checks the Authentication text file to see if there is any username-password pair that
  * matches the one passed to this function
@@ -311,19 +350,7 @@ int client_login(int sockfd, char* username) {
     return client_login_verification(username+1, password+1);
 }
 
-/**
- * Draws a screen that shows the user the viable options to select from the Main Menu 
- **/
-void draw_main_menu(int sockfd) {
-    send_message(sockfd, MSGC_PRINT, "Welcome to the Minesweeper gaming system.\n");
-    send_message(sockfd, MSGC_PRINT, "\n");
-    send_message(sockfd, MSGC_PRINT, "Please enter a selection:\n");
-    send_message(sockfd, MSGC_PRINT, "<1> Play Minesweeper\n");
-    send_message(sockfd, MSGC_PRINT, "<2> Show Leaderboard\n");
-    send_message(sockfd, MSGC_PRINT, "<3> Quit\n");
-    send_message(sockfd, MSGC_INPUT, "Selection Option (1-3): ");
-}
-
+/* =========================================== MINESWEEPER GAME FUNCTIONS =========================================== */
 /**
  * Iterates through a single row in the Minesweeper field and proceeds to join all of the information
  * of each tile in that row to a single string.
@@ -482,6 +509,7 @@ void tile_flag_prompt(MinesweeperState *sweeper_state, int sockfd) {
     }
 }
 
+/* ================================================= PLAYING SCREEN ================================================= */
 /**
  * Draws the screen that is shown to the user while the Minesweeper game is being played
  **/
@@ -506,88 +534,50 @@ void draw_playing_screen(MinesweeperState *sweeper_state, int sockfd) {
     send_message(sockfd, MSGC_INPUT, "Option (R,P,Q): ");
 }
 
-void draw_highscore_screen(MinesweeperState *sweeper_state, int sockfd) {
-    // Reader critical condition enter
-    leaderboard_read_lock();
-
-    if(get_gameinfo_size() < 1) {
-        send_message(sockfd, MSGC_PRINT, "---- The leaderboard is empty ----\n");
-        send_message(sockfd, MSGC_PRINT, "\n");
-    } else {
-        // Iterate through the list of won games
-        struct game* gameinfo = get_gameinfo_head();
-        while(gameinfo != NULL) {
-            int games_played, games_won;
-            get_userinfo(gameinfo->username, &games_played, &games_won);
-
-            // Print the details of the won game
-            char buffer[MESSAGE_MAX_SIZE];
-            snprintf(buffer, sizeof(buffer), "%s \t %d seconds \t %d games won, %d games played\n", gameinfo->username, gameinfo->time_taken, games_won, games_played);
-            send_message(sockfd, MSGC_PRINT, buffer);
-            gameinfo = gameinfo->next;
-        }
-    }
-
-    // Reader critical condition exit
-    leaderboard_read_unlock();
-
-    send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue");
-}
-
 /**
- * Draws the screen shown to the user when the game is finished (either through winning or losing)
+ * Receives input from the user in order to play the Minesweeper game. 
+ * The main game loop.
  **/
-void draw_gameover_screen(MinesweeperState *sweeper_state, int sockfd) {
-    send_message(sockfd, MSGC_PRINT, "------- Minesweeper -------\n");
-    send_message(sockfd, MSGC_PRINT, "\n");
+void update_playing_screen(int sockfd, enum game_state *state, MinesweeperState *sweeper_state, char *buffer) {
+    char input = buffer[1];
 
-    if(sweeper_state->game_won) {
-        send_message(sockfd, MSGC_PRINT, "You've won!\n");
-
-        // Create string with time won
-        char buffer[MESSAGE_MAX_SIZE];
-        snprintf(buffer, sizeof(buffer), "Time taken: %d seconds\n", (int)sweeper_state->game_time_taken);
-        send_message(sockfd, MSGC_PRINT, buffer);
-    } else {
-        send_message(sockfd, MSGC_PRINT, "Game Over! You've hit a mine\n");
-    }
-    send_message(sockfd, MSGC_PRINT, "\n");
-
-    show_mines(sweeper_state, sweeper_state->game_won);
-    draw_minesweeper_field(sweeper_state, sockfd);
-
-    send_message(sockfd, MSGC_PRINT, "\n");
-    send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue...\n");
-}
-
-/**
- * Will call a draw function that depends on the current state of the game
- **/
-void draw(enum game_state *state, MinesweeperState *sweeper_state, int sockfd) {
-    send_message(sockfd, MSGC_PRINT, "\n");
-    int size = send_message(sockfd, MSGC_PRINT, "===========================================================\n");
-    send_message(sockfd, MSGC_PRINT, "\n");
-    // Check if the client is still connected
-    if(size < 0) {
-        *state = EXIT;
-    }
-
-    switch(*state) {
-        case MAIN_MENU:
-            draw_main_menu(sockfd);
+    switch(input) {
+        case 'r':
+        case 'R':
+            tile_reveal_prompt(sweeper_state, state, sockfd);
             break;
-        case PLAYING:
-            draw_playing_screen(sweeper_state, sockfd);
+        case 'p':
+        case 'P':
+            tile_flag_prompt(sweeper_state, sockfd);
             break;
-        case GAMEOVER:
-            draw_gameover_screen(sweeper_state, sockfd);
-            break;
-        case HIGHSCORE:
-            draw_highscore_screen(sweeper_state, sockfd);
+        case 'q':
+        case 'Q':
+            minesweeper_game_end(sweeper_state, state, 0);
+            *state = MAIN_MENU;
             break;
         default:
+            send_message(sockfd, MSGC_PRINT, "Not a valid input! Choose a letter from (R, P, Q)\n");
             break;
     }
+
+    // Check if the game was won 
+    if(sweeper_state->mines_remaining == 0) {
+        minesweeper_game_end(sweeper_state, state, 1);
+    }
+}
+
+/* =================================================== MAIN MENU ==================================================== */
+/**
+ * Draws a screen that shows the user the viable options to select from the Main Menu 
+ **/
+void draw_main_menu(int sockfd) {
+    send_message(sockfd, MSGC_PRINT, "Welcome to the Minesweeper gaming system.\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+    send_message(sockfd, MSGC_PRINT, "Please enter a selection:\n");
+    send_message(sockfd, MSGC_PRINT, "<1> Play Minesweeper\n");
+    send_message(sockfd, MSGC_PRINT, "<2> Show Leaderboard\n");
+    send_message(sockfd, MSGC_PRINT, "<3> Quit\n");
+    send_message(sockfd, MSGC_INPUT, "Selection Option (1-3): ");
 }
 
 /**
@@ -624,35 +614,93 @@ void update_main_menu(int sockfd, enum game_state *state, MinesweeperState *swee
     }
 }
 
+/* ================================================ HIGHSCORE SCREEN ================================================ */
 /**
- * Receives input from the user in order to play the Minesweeper game. 
- * The main game loop.
+ * Iterates through the lists containing the scores and the user's games info and prints to the screen
  **/
-void update_playing_screen(int sockfd, enum game_state *state, MinesweeperState *sweeper_state, char *buffer) {
-    char input = buffer[1];
+void draw_highscore_screen(MinesweeperState *sweeper_state, int sockfd) {
+    // Reader critical condition enter
+    leaderboard_read_lock();
 
-    switch(input) {
-        case 'r':
-        case 'R':
-            tile_reveal_prompt(sweeper_state, state, sockfd);
-            break;
-        case 'p':
-        case 'P':
-            tile_flag_prompt(sweeper_state, sockfd);
-            break;
-        case 'q':
-        case 'Q':
-            minesweeper_game_end(sweeper_state, state, 0);
-            *state = MAIN_MENU;
-            break;
-        default:
-            send_message(sockfd, MSGC_PRINT, "Not a valid input! Choose a letter from (R, P, Q)\n");
-            break;
+    if(get_gameinfo_size() < 1) {
+        send_message(sockfd, MSGC_PRINT, "---- The leaderboard is empty ----\n");
+        send_message(sockfd, MSGC_PRINT, "\n");
+    } else {
+        // Iterate through the list of won games
+        struct game* gameinfo = get_gameinfo_head();
+        while(gameinfo != NULL) {
+            int games_played, games_won;
+            get_userinfo(gameinfo->username, &games_played, &games_won);
+
+            // Print the details of the won game
+            char buffer[MESSAGE_MAX_SIZE];
+            snprintf(buffer, sizeof(buffer), "%s \t %d seconds \t %d games won, %d games played\n", gameinfo->username, gameinfo->time_taken, games_won, games_played);
+            send_message(sockfd, MSGC_PRINT, buffer);
+            gameinfo = gameinfo->next;
+        }
     }
 
-    // Check if the game was won 
-    if(sweeper_state->mines_remaining == 0) {
-        minesweeper_game_end(sweeper_state, state, 1);
+    // Reader critical condition exit
+    leaderboard_read_unlock();
+
+    send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue");
+}
+
+/* ================================================ GAMEOVER SCREEN ================================================= */
+/**
+ * Draws the screen shown to the user when the game is finished (either through winning or losing)
+ **/
+void draw_gameover_screen(MinesweeperState *sweeper_state, int sockfd) {
+    send_message(sockfd, MSGC_PRINT, "------- Minesweeper -------\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+
+    if(sweeper_state->game_won) {
+        send_message(sockfd, MSGC_PRINT, "You've won!\n");
+
+        // Create string with time won
+        char buffer[MESSAGE_MAX_SIZE];
+        snprintf(buffer, sizeof(buffer), "Time taken: %d seconds\n", (int)sweeper_state->game_time_taken);
+        send_message(sockfd, MSGC_PRINT, buffer);
+    } else {
+        send_message(sockfd, MSGC_PRINT, "Game Over! You've hit a mine\n");
+    }
+    send_message(sockfd, MSGC_PRINT, "\n");
+
+    show_mines(sweeper_state, sweeper_state->game_won);
+    draw_minesweeper_field(sweeper_state, sockfd);
+
+    send_message(sockfd, MSGC_PRINT, "\n");
+    send_message(sockfd, MSGC_INPUT, "Press <Enter> to continue...\n");
+}
+
+/* ========================================== GAME LOOP AND STATE MACHINE =========================================== */
+/**
+ * Will call a draw function that depends on the current state of the game
+ **/
+void draw(enum game_state *state, MinesweeperState *sweeper_state, int sockfd) {
+    send_message(sockfd, MSGC_PRINT, "\n");
+    int size = send_message(sockfd, MSGC_PRINT, "===========================================================\n");
+    send_message(sockfd, MSGC_PRINT, "\n");
+    // Check if the client is still connected
+    if(size < 0) {
+        *state = EXIT;
+    }
+
+    switch(*state) {
+        case MAIN_MENU:
+            draw_main_menu(sockfd);
+            break;
+        case PLAYING:
+            draw_playing_screen(sweeper_state, sockfd);
+            break;
+        case GAMEOVER:
+            draw_gameover_screen(sweeper_state, sockfd);
+            break;
+        case HIGHSCORE:
+            draw_highscore_screen(sweeper_state, sockfd);
+            break;
+        default:
+            break;
     }
 }
 
@@ -699,6 +747,7 @@ void game_loop(int sockfd, char* username) {
     }
 }
 
+/* ======================================= THREADPOOL THREADS MAIN FUNCTION ========================================= */
 /**
 *   The main function that each thread from the thread pool runs. 
 *   It will attempt to connect to a client and then start playing the game until the client
@@ -759,8 +808,9 @@ void* handle_clients_loop() {
     }
 }
 
+/* ============================================== PROGRAM ENTRY POINT =============================================== */
 /**
-*   Initializes the server
+*   Initializes the server and keeps it running until the server_keep_alive flag is set to 0.
 **/
 int main(int argc, char *argv[]) {
     int server_sockfd, newsockfd;       // Listen on server_sockfd, new connection on newsockfd 
@@ -829,12 +879,13 @@ int main(int argc, char *argv[]) {
 
         // Error checking
         if(errno == EINTR) {
-            // This will be thrown if accept() is interrupted by a system call (SIGINT)
+            // This will be thrown if accept() is interrupted by a signal like SIGINT
             break;
         } else if(newsockfd == -1) {
             // Something wrong happened when trying to connect to a client
             error("Accept");
         }
+        
         // Add the client to the queue
         int queue_size = client_queue_add(newsockfd);
         // Note that the queue length can be that of the queue before it is read by a thread and the 
@@ -843,6 +894,7 @@ int main(int argc, char *argv[]) {
         printf("Client connected. Socket: %d. Queue length: %d\n", newsockfd, queue_size);
     }
 
+    // Clean up the program before exiting
     printf("\n");
     // Cancel all threads in the threadpool
     for(int i=0; i < THREADPOOL_SIZE; i++) {
