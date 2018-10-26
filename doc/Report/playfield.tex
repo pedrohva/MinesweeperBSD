@@ -1,0 +1,21 @@
+%----------------------------------------------------------------------------------------
+%	REPRESENTING THE PLAYFIELD
+%----------------------------------------------------------------------------------------
+The playfield is represented as a two-dimensional array of \textit{Tile} objects. 
+\begin{lstlisting}[style=CStyle]
+// minesweeper.h: Line 26
+Tile field[FIELD_WIDTH][FIELD_HEIGHT];
+\end{lstlisting}
+Each \textit{Tile} object is a struct that holds information that helps control the game.
+\begin{lstlisting}[style=CStyle]
+// minesweeper.h: Lines 15-20
+typedef struct {
+	int adjacent_mines;
+	int revealed;
+	int has_mine;
+	int has_flag;
+} Tile;
+\end{lstlisting}
+A two-dimensional array was chosen to save programming time. The ability to access the field directly through \textit{x-y} coordinates (\lstinline{field[x][y]}) greatly increases readability of the program. 
+\\
+There is some increased computational complexity to iterate through the field when compared with a one-dimensional array but since the field only contains 81 tiles, it's not enough of a drawback to sacrifice program readability. 

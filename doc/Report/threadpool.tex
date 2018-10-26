@@ -1,0 +1,31 @@
+%----------------------------------------------------------------------------------------
+%	THREADPOOL
+%----------------------------------------------------------------------------------------
+To avoid constant creation and destruction of threads every time a client connects, a threadpool was implemented. It is simply an array that holds different threads. 
+\begin{lstlisting}[style=CStyle]
+// server.c: Line 23
+#define THREADPOOL_SIZE         10
+// server.c: Line 33
+pthread_t threadpool[THREADPOOL_SIZE]; // Holds the threads in the threadpool
+\end{lstlisting}
+These threads are then created and assigned a function where they loop infinitely while handling any client that connects.
+\begin{lstlisting}[style=CStyle]
+// server.c: Lines 838-840
+for(int i=0; i < THREADPOOL_SIZE; i++) {
+	pthread_create(&threadpool[i], NULL, handle_clients_loop, NULL);
+}
+\end{lstlisting}
+Due to the array being limited to a size set by \textit{THREADPOOL\_SIZE}, only that many clients can connect at once. Everytime a client connects to the server, they will be put into a queue where they they await until a thread is free. More info about the client queue can be seen in the "Accessing the client queue" heading in the "Handing Critical Section Problems" section.
+\begin{lstlisting}[style=CStyle]
+// server.c: Lines 878-890
+newsockfd = accept(server_sockfd, (struct sockaddr *)&client_addr, &sockin_size);
+// Add the client to the queue
+int queue_size = client_queue_add(newsockfd);
+\end{lstlisting}
+When the server receives a signal to shut down, it will iterate through every thread in the threadpool and request that the thread terminate at the next cancellation point.
+\begin{lstlisting}[style=CStyle]
+// server.c: Lines 899-902
+for(int i=0; i < THREADPOOL_SIZE; i++) {
+	pthread_cancel(threadpool[i]);
+}
+\end{lstlisting}

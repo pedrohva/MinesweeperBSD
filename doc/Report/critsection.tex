@@ -1,0 +1,172 @@
+%----------------------------------------------------------------------------------------
+%	HANDLING CRITICAL SECTION PROBLEMS
+%----------------------------------------------------------------------------------------
+With the addition of multi-threading, four critical section problems had to be solved in order to keep the threads synchronized and to prevent bugs.
+\subsection{Using \textit{rand()}}
+Whenever a Minesweeper game is initialized, the \textit{rand()} function is used to place the mines in the field. As \textit{rand()} is not thread-safe, a simple mutex lock was used.
+\begin{lstlisting}[style=CStyle]
+// server.c: Line 50
+pthread_mutex_t rand_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// server.c: Lines 587-615
+void update_main_menu(...) {
+	...
+	switch(selection) {
+		case 1:
+			pthread_mutex_lock(&rand_mutex);
+			minesweeper_init(sweeper_state);	// The rand() function is used here
+			pthread_mutex_unlock(&rand_mutex);
+			*state = PLAYING;
+			break;
+	...
+}
+\end{lstlisting}
+
+\subsection{Performing I/O operations with text file}
+The current implementation of the server does not write to the \textit{Authentication.txt} file. Therefore, initially, no mutex was going to be used as all access to the file would be read-only.
+\\
+After further research, it was found that opening a file that is already open leads to implementation-defined behavior \cite{fopen}.
+\\
+To be safe, a simple mutex lock to restrict access to the file was implemented.
+\begin{lstlisting}[style=CStyle]
+// server.c: Line 47
+pthread_mutex_t file_read_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+// server.c: Lines 284-322
+int client_login_verification(char* username, char* password) {
+	...
+	// Lock mutex in order to access the authentication file
+	pthread_mutex_lock(&file_read_mutex);
+	
+	// CRITICAL SECTION - Performing I/O operations with the open file
+	
+	// Unlock the mutex to the file so other threads can access it 
+	pthread_mutex_unlock(&file_read_mutex);
+	..
+}
+\end{lstlisting}
+
+\subsection{Accessing the client queue}
+Client that are waiting to connect to the server will be put into the tool. The process of adding or popping clients from this queue is protected by the same style of mutex lock as seen with the File I/O and \textit{rand()}.
+\\
+In order to signal one of the threads in the threadpool while controlling access to the queue, a conditional pthread variable is used.
+\\
+\\
+The benefits of this implementation are two-fold. It allows the infinite loop that makes up the main thread function to pause until there's a client waiting without the need to constantly lock the mutex to check if a client has appeared at the queue. At the same time, the queue mutex is released, allowing other threads to continue with their functions. 
+\begin{lstlisting}[style=CStyle]
+// server.c: Lines 204-235
+int client_queue_add(int client_sockfd) {
+	...
+	// Lock the mutex for the queue
+	pthread_mutex_lock(&client_queue_mutex);
+	
+	// CRITICAL SECTION - MODIFYING THE QUEUE
+	
+	// Unlock the mutex for the queue
+	pthread_mutex_unlock(&client_queue_mutex);
+	
+	// Signal the condition variable that the queue has a new request
+	pthread_cond_signal(&client_queue_got_request);
+	...
+}
+
+// server.c: Lines 242-275
+int client_queue_pop() {
+	...
+	// Lock the mutex for the queue
+	pthread_mutex_lock(&client_queue_mutex);
+	
+	// CRITICAL SECTION - MODIFYING THE QUEUE
+	
+	// Unlock the mutex for the queue
+	pthread_mutex_unlock(&client_queue_mutex);
+	...
+}
+
+// server.c: Lines 756-809
+void* handle_clients_loop() {
+// Lock the mutex to the client queue
+pthread_mutex_lock(&client_queue_mutex);
+
+// Keep handling clients until server is shutdown
+while(1) {
+	// Try to connect to a client in the queue if there are any
+	if(client_queue_size > 0) {
+		int client_sockfd = client_queue_pop();
+	
+		if(client_sockfd > -1) {
+			// Unlock the mutex to the queue while this thread is connected to a client
+			pthread_mutex_unlock(&client_queue_mutex);
+			...
+			// Thread connected to client. Out of critical section until client disconnects
+			...
+			// Lock the mutex now that the client has disconnected
+			pthread_mutex_lock(&client_queue_mutex);
+		}
+	}else {
+		// Wait for a client to connect. The mutex will be unlocked while waiting
+		while(client_queue_size < 1) {
+			pthread_cond_wait(&client_queue_got_request, &client_queue_mutex);
+		}
+	}
+}
+\end{lstlisting}
+
+\subsection{Accessing the Leaderboard}
+The critical section involving the leaderboard can be defined as a Reader-Writer problem. In this implementation, any number of readers can access the leaderboard at one time. However, no reader or writer can access the leaderboard while it is being modified by a writer. 
+\\
+It is critical that a writer successfully updates the leaderboard, as user game data should not be lost due to a writer starving. To prevent this, preferential access will be given to writers. A reader starving is not as critical due to no data being lost from a client disconnecting while waiting to read. 
+\begin{lstlisting}[style=CStyle]
+// server.c: Lines 132-144
+void leaderboard_read_lock() {
+	pthread_mutex_lock(&leaderboard_rmutex);   
+	pthread_mutex_lock(&leaderboard_rcmutex);
+	
+	leaderboard_rc++;
+	// If first reader, lock the leaderboard from being written to
+	if(leaderboard_rc == 1) {
+		pthread_mutex_lock(&leaderboard_wmutex);    
+	}
+	pthread_mutex_unlock(&leaderboard_rcmutex);
+	pthread_mutex_unlock(&leaderboard_rmutex);
+}
+
+// server.c: Lines 150-160
+void leaderboard_read_unlock() {
+	pthread_mutex_lock(&leaderboard_rcmutex);   // Reserve rc to avoid race conditions
+	
+	leaderboard_rc--;
+	// If last reader, allow the leaderboard to be written to
+	if(leaderboard_rc == 0) {
+		pthread_mutex_unlock(&leaderboard_wmutex);
+	}
+	pthread_mutex_unlock(&leaderboard_rcmutex);
+}
+
+// server.c: Lines 166-177
+void leaderboard_write_lock() {
+	pthread_mutex_lock(&leaderboard_wcmutex);   // Reserve wc to avoid race conditions
+	
+	leaderboard_wc++;
+	// If first writer, lock the readers from accessing the leaderboard
+	if(leaderboard_wc == 1) {
+		pthread_mutex_lock(&leaderboard_rmutex);
+	}
+	pthread_mutex_unlock(&leaderboard_wcmutex);
+	pthread_mutex_lock(&leaderboard_wmutex);   
+}
+
+// server.c: Lines 183-193
+void leaderboard_write_unlock() {
+	pthread_mutex_unlock(&leaderboard_wmutex);  	
+	pthread_mutex_lock(&leaderboard_wcmutex);
+	leaderboard_wc--;
+	// If last writer, allow readers to access the leaderboard
+	if(leaderboard_wc == 0) {
+		pthread_mutex_unlock(&leaderboard_rmutex);
+	}
+	pthread_mutex_unlock(&leaderboard_wcmutex);
+}
+
+// USE: r/w_lock() -> CRITICAL SECTION -> r/w_unlock()
+\end{lstlisting}

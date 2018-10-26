@@ -2,7 +2,7 @@
 %	PACKAGES AND OTHER DOCUMENT CONFIGURATIONS
 %----------------------------------------------------------------------------------------
 
-\documentclass{article}
+\documentclass[titlepage]{article}
 
 \usepackage{fancyhdr} % Required for custom headers
 \usepackage{lastpage} % Required to determine the last page for the footer
@@ -15,6 +15,7 @@
 \usepackage{xcolor}
 \usepackage{listings} 
 \usepackage{dirtree}
+\usepackage[numbers]{natbib} 
 
 \definecolor{mGreen}{rgb}{0,0.6,0}
 \definecolor{mGray}{rgb}{0.5,0.5,0.5}
@@ -37,7 +38,7 @@
 	showspaces=false,                
 	showstringspaces=false,
 	showtabs=false,                  
-	tabsize=2,
+	tabsize=4,
 	language=C
 }
 
@@ -73,9 +74,9 @@
 
 % Set up the header and footer
 \pagestyle{fancy}
-\chead{Assignment 1 - Group 5} % Top center header
-\lhead{}
-\rhead{\firstxmark} % Top right header
+\lhead{CAB403}
+\chead{Distributed Systems Major Assignment}
+\rhead{Pedro Alves (n9424342)}
 \lfoot{\lastxmark} % Bottom left footer
 \cfoot{} % Bottom center footer
 \rfoot{Page\ \thepage\ of\ \pageref{LastPage}} % Bottom right footer
@@ -139,6 +140,48 @@
 \section{Program Launch Instructions}
 
 \input{program_launch_instructions}
+
+\clearpage
+
+%----------------------------------------------------------------------------------------
+%	REPRESENTING THE PLAYFIELD
+%----------------------------------------------------------------------------------------
+\section{Representing the Playfield}
+
+\input{playfield}
+
+%----------------------------------------------------------------------------------------
+%	LEADERBOARD
+%----------------------------------------------------------------------------------------
+\section{Leaderboard}
+
+\input{leaderboard}
+
+\clearpage
+
+%----------------------------------------------------------------------------------------
+%	HANDLING CRITICAL SECTION PROBLEMS
+%----------------------------------------------------------------------------------------
+\section{Handling Critical Section Problems}
+
+\input{critsection}
+
+\clearpage
+
+%----------------------------------------------------------------------------------------
+%	THREADPOOL
+%----------------------------------------------------------------------------------------
+\section{Threadpool}
+
+\input{threadpool}
+
+\clearpage
+
+%----------------------------------------------------------------------------------------
+%	REFERENCES
+%----------------------------------------------------------------------------------------
+\bibliographystyle{IEEEtranN} 
+\bibliography{References}
 
 \clearpage
 

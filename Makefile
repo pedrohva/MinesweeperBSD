@@ -4,10 +4,10 @@ CLIENT_OBJ = src/client.o src/message.o
 SERVER_OBJ = src/server.o src/message.o src/minesweeper.o src/leaderboard.o
 
 client: $(CLIENT_OBJ)
-	gcc -Wall -o bin/client $^
+	gcc -Wall -std=c99 -o bin/client $^
 
 server: $(SERVER_OBJ)
-	gcc -Wall -o bin/server $^ -lpthread
+	gcc -Wall -std=c99 -o bin/server $^ -lpthread
 
 src/message.o: src/message.h
 src/minesweeper.o: src/minesweeper.h
