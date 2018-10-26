@@ -20,7 +20,7 @@
 #include "leaderboard.h"
 
 #define PORT_DEFAULT            12345       // The port to listen to when no other option is given
-#define THREADPOOL_SIZE         2          // How many working threads will be handling clients at one time
+#define THREADPOOL_SIZE         10          // How many working threads will be handling clients at one time
 #define CONNECTION_BACKLOG_MAX  200         // The maximum number of connections the server will support
 #define RNG_SEED_DEFAULT        42          // The seed used for the random number generator
 

@@ -1,0 +1,24 @@
+%----------------------------------------------------------------------------------------
+%	PROGRAM LAUNCH INSTRUCTIONS
+%----------------------------------------------------------------------------------------
+Open a terminal at the \textit{root/bin} directory. The server and clients can be launched as follows.
+\subsection{Server}
+\begin{lstlisting}[language=bash]
+$ ./server
+\end{lstlisting}
+Will open a server on port 12345.
+\begin{lstlisting}[language=bash]
+$ ./server portnum
+\end{lstlisting}
+Will open a server on the port given by the number \textit{portnum}.
+\\
+\subsection{Client}
+\begin{lstlisting}[language=bash]
+$ ./client server_ip_address portnum
+\end{lstlisting}
+Will open a client which will attempt to connect to a server at the address \textit{server\_ip\_address} on port \textit{port\_num}.
+\begin{lstlisting}[language=bash]
+$ ./client 127.0.0.1 portnum
+$ ./client localhost portnum
+\end{lstlisting}
+Both are valid when connecting to a server on the local network. 
